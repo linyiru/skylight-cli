@@ -1,9 +1,9 @@
 {
-  "scenario": "deploys.unknown-component",
-  "description": "Component id that does not exist",
+  "scenario": "deploy.unknown",
+  "description": "Deploy id that does not exist",
   "request": {
     "method": "GET",
-    "url": "https://www.skylight.io/deploys?timestamp=1790356980&duration=21600&app_component_id=fx836a3f2531",
+    "url": "https://www.skylight.io/deploys/fx836a3f2531",
     "auth": "session",
     "bearer": false,
     "accept": "*/*",

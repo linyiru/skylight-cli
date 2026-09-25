@@ -3,7 +3,7 @@
   "description": "Unknown session token",
   "request": {
     "method": "GET",
-    "url": "https://www.skylight.io/deploys?timestamp=1790353500&duration=21600&app_component_id=fx4411e8845d",
+    "url": "https://www.skylight.io/deploys?timestamp=1790356980&duration=21600&app_component_id=fx4411e8845d",
     "auth": "invalid",
     "bearer": false,
     "accept": "*/*",

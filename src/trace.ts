@@ -124,3 +124,60 @@ export function condenseTraceTree(node: TraceTreeNode, options: CondenseOptions 
   };
   return condense(node, true);
 }
+
+/** A trace annotation's source value, `digest` (gem) or `digest:line` (app code), with its deploy. */
+export interface TraceSourceRef {
+  deployRef: string;
+  digest: string;
+  /** Present for app code, absent for gems and synthetic events. */
+  line: number | null;
+}
+
+export function parseTraceSource([deployRef, value]: [string, string | null]): TraceSourceRef | undefined {
+  if (!value) return undefined;
+  const [digest = '', line] = value.split(':');
+  return digest ? { deployRef, digest, line: line ? Number.parseInt(line, 10) : null } : undefined;
+}
+
+/** Source digests and deploy refs used anywhere in a tree, for batch lookups. */
+export function traceSourceRefs(node: TraceTreeNode): { digests: string[]; deployRefs: string[] } {
+  const digests = new Set<string>(), deployRefs = new Set<string>();
+  const visit = (current: TraceTreeNode) => {
+    for (const pair of current.sources) {
+      const ref = parseTraceSource(pair);
+      if (ref) { digests.add(ref.digest); deployRefs.add(ref.deployRef); }
+    }
+    current.children.forEach(visit);
+  };
+  visit(node);
+  return { digests: [...digests], deployRefs: [...deployRefs] };
+}
+
+export interface TraceSourceLocation {
+  /** App file path or gem name; null when Skylight has no record of the digest. */
+  name: string | null;
+  line: number | null;
+  /** App code (has a line) rather than a gem. */
+  inApp: boolean;
+  deployRef: string;
+  gitSha: string | null;
+}
+
+export interface LocatedTraceTreeNode extends Omit<TraceTreeNode, 'children'> {
+  /** App code first, unresolved names last; synthetic events are left out. */
+  locations: TraceSourceLocation[];
+  children: LocatedTraceTreeNode[];
+}
+
+/** Attaches resolved source names (by digest) and deploy git shas (by deploy ref) to every node. */
+export function locateTraceTree(node: TraceTreeNode, names: ReadonlyMap<string, string>,
+  gitShas: ReadonlyMap<string, string> = new Map()): LocatedTraceTreeNode {
+  const locations = node.sources.map(parseTraceSource)
+    .filter((ref): ref is TraceSourceRef => ref !== undefined)
+    .map(ref => ({ name: names.get(ref.digest) ?? null, line: ref.line, inApp: ref.line !== null, deployRef: ref.deployRef,
+      gitSha: gitShas.get(ref.deployRef) ?? null }))
+    .filter(location => location.name !== '<synthetic>')
+    .sort((a, b) => Number(b.inApp) - Number(a.inApp) || Number(a.name === null) - Number(b.name === null)
+      || (a.name ?? '').localeCompare(b.name ?? '') || (a.line ?? 0) - (b.line ?? 0));
+  return { ...node, locations, children: node.children.map(child => locateTraceTree(child, names, gitShas)) };
+}

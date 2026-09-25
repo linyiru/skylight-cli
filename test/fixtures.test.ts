@@ -10,7 +10,7 @@ import { setupServer } from 'msw/node';
 import { SkylightClient } from '../src/skylight-client.ts';
 import { SkylightError } from '../src/errors.ts';
 import { main } from '../src/cli.ts';
-import { TREND_MAX_SECONDS_PER_REQUEST } from '../src/spec.ts';
+import { SOURCE_LOCATION_BATCH, TREND_MAX_SECONDS_PER_REQUEST } from '../src/spec.ts';
 import type { EndpointSummary, TrendSeries, WireAppsResponse } from '../src/types.ts';
 import { FIXTURE_TOKENS, fixture, fixtureResponse, replay } from './support/msw.ts';
 
@@ -128,6 +128,70 @@ describe('happy path', () => {
   });
 });
 
+describe('source locations', () => {
+  const locations = fixture('source-locations.ok').response.body as { data: { attributes: { digest: string; name: string } }[] };
+
+  test('resolves digests through `{component}:{digest}` ids with the session token', async () => {
+    const handler = replay('source-locations.ok');
+    server.use(replay('auth.ok'), replay('apps.ok'), handler);
+    const digests = locations.data.map(l => l.attributes.digest);
+    const names = await client().getSourceLocations({ digests: [...digests, 'zzzzz'] });
+    assert.deepEqual([...names.keys()].sort(), [...digests].sort());
+    assert.equal(names.get(digests[0]!), locations.data[0]!.attributes.name);
+    const ids = new URL(handler.requests[0]!.url).searchParams.get('filter[id]')!.split(',');
+    assert.ok(ids.every(id => id.startsWith(`${componentGuid}:`)));
+  });
+
+  test('a bare digest matches nothing upstream, which is why ids carry the component', () => {
+    assert.deepEqual(fixture('source-locations.bare-digest').response.body, { data: [], meta: {} });
+    assert.equal(fixture('source-locations.missing-filter').response.status, 400);
+    assert.equal(fixture('source-locations.client-token').response.status, 401);
+  });
+
+  test('batches long digest lists', async () => {
+    const handler = replay('source-locations.ok');
+    server.use(replay('auth.ok'), replay('apps.ok'), handler);
+    await client().getSourceLocations({ digests: Array.from({ length: SOURCE_LOCATION_BATCH + 1 }, (_, i) => `d${i}`) });
+    assert.equal(handler.requests.length, 2);
+  });
+
+  test('deploy by id; an unknown id is a 404', async () => {
+    const deploy = fixture('deploy.ok').response.body as { data: { id: string } };
+    server.use(replay('auth.ok'), replay('deploy.ok'));
+    assert.match((await client().getDeploy({ id: deploy.data.id })).attributes.git_sha, /^[0-9a-f]{40}$/);
+    assert.equal(fixture('deploy.unknown').response.status, 404);
+    server.use(http.get('https://www.skylight.io/deploys/*', () => fixtureResponse(fixture('deploy.unknown'))));
+    await rejectsWithStatus(client().getDeploy({ id: 'AAAAAAAAAAAA' }), 404);
+  });
+
+  test('trace shows file:line for app code and the deploy', async () => {
+    const summary = fixture('summary.n-plus-one').response.body as EndpointSummary;
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: { name: string }[] };
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
+        endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
+      replay('summary.n-plus-one'), replay('source-locations.ok'), replay('deploy.ok'));
+    const { code, stdout } = await cli(['trace', summary.endpoint.name, '--full']);
+    assert.equal(code, 0);
+    assert.match(stdout, /^Source +deploy [0-9a-f]{7}; \d+ of \d+ locations resolved$/m);
+    assert.match(stdout, /  app\/[\w/]+\.rb:\d+( \(\+\d+\))?$/m);
+  });
+
+  test('trace still renders when source lookup fails', async () => {
+    const summary = fixture('summary.n-plus-one').response.body as EndpointSummary;
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: { name: string }[] };
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
+        endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
+      replay('summary.n-plus-one'), replay('deploy.ok'),
+      http.get('https://www.skylight.io/source_locations', () => fixtureResponse(fixture('source-locations.client-token'))));
+    const { code, stdout } = await cli(['trace', summary.endpoint.name]);
+    assert.equal(code, 0);
+    assert.match(stdout, /^Source +unavailable \(HTTP 401\); --no-sources skips the lookup$/m);
+    assert.match(stdout, /app\.rack\.request/);
+  });
+});
+
 describe('recorded upstream errors', () => {
   test('invalid MCP token: 401 JSON error; body is not exposed', async () => {
     const recording = fixture('auth.invalid-token');
@@ -218,7 +282,7 @@ describe('CLI on recorded responses', () => {
       http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
         endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
       replay('summary.ok'));
-    const { code, stdout } = await cli(['trace', summary.endpoint.name, '--full']);
+    const { code, stdout } = await cli(['trace', summary.endpoint.name, '--full', '--no-sources']);
     assert.equal(code, 0);
     const events = stdout.split('\n').filter(line => /^\s+[\d.]+\s+[\d.]+/.test(line));
     // The fixture keeps the first 12 nodes; every one of them is reachable from the root.

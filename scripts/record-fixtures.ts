@@ -13,6 +13,14 @@ const root = new URL('../', import.meta.url);
 const keyFile = new URL('.fixture-key', root);
 const outDir = new URL('test/fixtures/', root);
 
+/** JSON paths whose string value contains `needle`, for leak reports that must not print the value. */
+function fieldsContaining(value: unknown, needle: string, path: string): string[] {
+  if (typeof value === 'string') return value.includes(needle) ? [path] : [];
+  if (Array.isArray(value)) return value.flatMap((item, i) => fieldsContaining(item, needle, `${path}[${i}]`));
+  if (value && typeof value === 'object') return Object.entries(value).flatMap(([k, v]) => fieldsContaining(v, needle, `${path}.${k}`));
+  return [];
+}
+
 const token = process.env.SKYLIGHT_MCP_TOKEN;
 if (!token) {
   console.error('SKYLIGHT_MCP_TOKEN is required');
@@ -33,13 +41,23 @@ try {
     console.log(`${String(recording.response.status).padEnd(5)} ${scenario.name}`);
   }
   const files = recordings.map(r => [`${r.scenario}.json`, `${JSON.stringify(r, null, 2)}\n`] as const);
-  const leaks = sanitizer.leaks(files.map(([, body]) => body).join('\n'));
+  // A value counts as leaked only inside a request or response string value. The same word as a JSON key (a path
+  // segment named like a field) is Skylight's schema, and scenario descriptions are ours; neither is account data.
+  const exchanged = (r: Recording) => ({ request: r.request, response: r.response });
+  // Single words renamed from traces (e.g. `session`) can equal our own vocabulary: auth kinds, test token names,
+  // scenario descriptions. Those occurrences are ours, not account data.
+  const vocabulary = new Set([...SCENARIOS.map(s => s.description), 'mcp session client invalid none',
+    'test-mcp-token test-session-token test-client-token'].join(' ').toLowerCase().split(/[^a-z0-9_]+/));
+  const leaks = sanitizer.leaks(files.map(([, body]) => body).join('\n'))
+    .filter(({ value, kind }) => !(kind === 'identifier' && vocabulary.has(value.toLowerCase())))
+    .filter(({ value }) => recordings.some(r => fieldsContaining(exchanged(r), value, r.scenario).length > 0));
   if (leaks.length) {
     // Never print the leaked values themselves: only their kind, length, and where they occur.
     console.error(`Aborted: ${leaks.length} original value(s) survived sanitization; nothing written.`);
     for (const { value, kind } of leaks) {
       const where = files.filter(([, body]) => body.includes(value)).map(([name]) => name);
-      console.error(`  ${kind} (${value.length} chars) in ${where.join(', ')}`);
+      const paths = recordings.flatMap(r => fieldsContaining(exchanged(r), value, r.scenario));
+      console.error(`  ${kind} (${value.length} chars) in ${where.join(', ')} at ${paths.slice(0, 5).join(', ')}`);
     }
     process.exit(1);
   }

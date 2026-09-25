@@ -1,0 +1,241 @@
+{
+  "scenario": "source-locations.ok",
+  "description": "Source locations by `{component}:{digest}` ids",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/source_locations?filter%5Bid%5D=fx4411e8845d%3Add2e9%2Cfx4411e8845d%3Ad2578%2Cfx4411e8845d%3Ade2a9%2Cfx4411e8845d%3Ad9024%2Cfx4411e8845d%3Ad7aba%2Cfx4411e8845d%3Ad1cfc%2Cfx4411e8845d%3Ad3933%2Cfx4411e8845d%3Ad197f%2Cfx4411e8845d%3Ad3add%2Cfx4411e8845d%3Ad66e5%2Cfx4411e8845d%3Add160%2Cfx4411e8845d%3Ad49a4%2Cfx4411e8845d%3Ade65d%2Cfx4411e8845d%3Ad25a5%2Cfx4411e8845d%3Ad793a%2Cfx4411e8845d%3Ad2c7f%2Cfx4411e8845d%3Adb3c8%2Cfx4411e8845d%3Adf4f3%2Cfx4411e8845d%3Ad5d28%2Cfx4411e8845d%3Ad383c",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/vnd.api+json; charset=utf-8",
+    "body": {
+      "data": [
+        {
+          "id": "fx4411e8845d:dd2e9",
+          "type": "source_locations",
+          "attributes": {
+            "name": "<synthetic>",
+            "collector_id": "fx4411e8845d",
+            "digest": "dd2e9",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:dd160",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res7e1b5",
+            "collector_id": "fx4411e8845d",
+            "digest": "dd160",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d3add",
+          "type": "source_locations",
+          "attributes": {
+            "name": "resad5e9",
+            "collector_id": "fx4411e8845d",
+            "digest": "d3add",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:df4f3",
+          "type": "source_locations",
+          "attributes": {
+            "name": "app/resb8cd8/resca140/resa1d62.rb",
+            "collector_id": "fx4411e8845d",
+            "digest": "df4f3",
+            "created_at": "2021-09-22T00:17:42+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d25a5",
+          "type": "source_locations",
+          "attributes": {
+            "name": "resef066",
+            "collector_id": "fx4411e8845d",
+            "digest": "d25a5",
+            "created_at": "2024-11-18T08:58:40+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d1cfc",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res65037-res05868",
+            "collector_id": "fx4411e8845d",
+            "digest": "d1cfc",
+            "created_at": "2023-10-10T03:05:34+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d197f",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res81f8c-res63109",
+            "collector_id": "fx4411e8845d",
+            "digest": "d197f",
+            "created_at": "2026-04-24T17:41:14+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:de2a9",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res1ee14",
+            "collector_id": "fx4411e8845d",
+            "digest": "de2a9",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d383c",
+          "type": "source_locations",
+          "attributes": {
+            "name": "app/resc89cf/res0e95c/resf2fe4/resf568b.rb",
+            "collector_id": "fx4411e8845d",
+            "digest": "d383c",
+            "created_at": "2024-01-09T08:27:41+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d7aba",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res00000",
+            "collector_id": "fx4411e8845d",
+            "digest": "d7aba",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:de65d",
+          "type": "source_locations",
+          "attributes": {
+            "name": "resd5757",
+            "collector_id": "fx4411e8845d",
+            "digest": "de65d",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d49a4",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res1f600-resed1de-res1330b",
+            "collector_id": "fx4411e8845d",
+            "digest": "d49a4",
+            "created_at": "2026-02-25T04:40:48+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d2578",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res81f8c-res6ea69",
+            "collector_id": "fx4411e8845d",
+            "digest": "d2578",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:db3c8",
+          "type": "source_locations",
+          "attributes": {
+            "name": "app/res471a9/res5530a.rb",
+            "collector_id": "fx4411e8845d",
+            "digest": "db3c8",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d66e5",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res81f8c-resabe66",
+            "collector_id": "fx4411e8845d",
+            "digest": "d66e5",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d3933",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res65037-res1f600",
+            "collector_id": "fx4411e8845d",
+            "digest": "d3933",
+            "created_at": "2021-10-30T05:35:51+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d2c7f",
+          "type": "source_locations",
+          "attributes": {
+            "name": "app/resb8cd8/res907c7.rb",
+            "collector_id": "fx4411e8845d",
+            "digest": "d2c7f",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d5d28",
+          "type": "source_locations",
+          "attributes": {
+            "name": "app/resb8cd8/resed022.rb",
+            "collector_id": "fx4411e8845d",
+            "digest": "d5d28",
+            "created_at": "2021-07-10T10:04:28+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d793a",
+          "type": "source_locations",
+          "attributes": {
+            "name": "app/resdd09a/res3ac23.rb",
+            "collector_id": "fx4411e8845d",
+            "digest": "d793a",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        },
+        {
+          "id": "fx4411e8845d:d9024",
+          "type": "source_locations",
+          "attributes": {
+            "name": "res81f8c",
+            "collector_id": "fx4411e8845d",
+            "digest": "d9024",
+            "created_at": "2021-07-10T09:57:13+00:00",
+            "updated_at": "2026-09-26T01:21:00+00:00"
+          }
+        }
+      ],
+      "meta": {}
+    }
+  }
+}

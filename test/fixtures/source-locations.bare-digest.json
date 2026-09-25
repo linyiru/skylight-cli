@@ -1,0 +1,20 @@
+{
+  "scenario": "source-locations.bare-digest",
+  "description": "Digest without the component prefix matches nothing",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/source_locations?filter%5Bid%5D=dd2e9",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/vnd.api+json; charset=utf-8",
+    "body": {
+      "data": [],
+      "meta": {}
+    }
+  }
+}

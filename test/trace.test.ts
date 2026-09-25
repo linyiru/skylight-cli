@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTraceTree, condenseTraceTree, countTraceNodes } from '../src/trace.ts';
+import {
+  buildTraceTree, condenseTraceTree, countTraceNodes, locateTraceTree, parseTraceSource, traceSourceRefs,
+} from '../src/trace.ts';
 import type { TraceNode, TraceSpan, TraceTarget } from '../src/types.ts';
 
 // span: [target, samples, ?, ?, start relative to parent, duration, ?, [[1, samples, allocOffset, allocations], [2, sources]]]
@@ -57,4 +59,24 @@ test('condensing folds pass-through middleware and drops rare or short events', 
 
 test('an empty trace, as for an endpoint without requests, has no tree', () => {
   assert.equal(buildTraceTree({ nodes: [], targets: [] }), undefined);
+});
+
+test('parses trace source values: digest:line is app code, a bare digest is a gem', () => {
+  assert.deepEqual(parseTraceSource(['deploy', 'abc12:76']), { deployRef: 'deploy', digest: 'abc12', line: 76 });
+  assert.deepEqual(parseTraceSource(['deploy', 'gem01']), { deployRef: 'deploy', digest: 'gem01', line: null });
+  assert.equal(parseTraceSource(['deploy', null]), undefined);
+});
+
+test('locates nodes: app code first, synthetic events dropped, unknown digests kept without a name', () => {
+  const withSources = (sources: [string, string | null][]): TraceSpan => [0, 1, 0, 0, 0, 10, 0, [[1, 1, 0, 0], [2, sources]]];
+  const tree = buildTraceTree({ targets: [{ start: 0, length: 10, requests: [] }], nodes: [
+    [null, 'app.rack.request', null, null, [withSources([['d1', 'syn00']])]],
+    [0, 'db.sql.query', 'SELECT FROM users', null, [withSources([['d1', 'gem01'], ['d1', 'app01:12'], ['d1', 'miss0:3']])]],
+  ] })!;
+  assert.deepEqual(traceSourceRefs(tree), { digests: ['syn00', 'gem01', 'app01', 'miss0'], deployRefs: ['d1'] });
+  const located = locateTraceTree(tree, new Map([['syn00', '<synthetic>'], ['gem01', 'activerecord'], ['app01', 'app/models/user.rb']]),
+    new Map([['d1', 'abcdef1234']]));
+  assert.deepEqual(located.locations, []);
+  assert.deepEqual(located.children[0]!.locations.map(l => [l.name, l.line, l.inApp, l.gitSha]), [
+    ['app/models/user.rb', 12, true, 'abcdef1234'], [null, 3, true, 'abcdef1234'], ['activerecord', null, false, 'abcdef1234']]);
 });

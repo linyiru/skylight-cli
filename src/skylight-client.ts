@@ -1,12 +1,12 @@
 import { SkylightError } from './errors.ts';
 import {
-  DEPLOY_WINDOW, ENDPOINT_WINDOW, LIMIT, TREND_WINDOW, assertLimit, defaultTrendStep, isEndpointSortKey, timeWindow,
+  DEPLOY_WINDOW, ENDPOINT_WINDOW, LIMIT, SOURCE_LOCATION_BATCH, TREND_WINDOW, assertLimit, defaultTrendStep, isEndpointSortKey, timeWindow,
   trendRanges, type EndpointSortKey, type TrendStep, type WindowStart,
 } from './spec.ts';
 import type {
-  App, ClientApiToken, Component, DeployList, EndpointHighlight, EndpointList, EndpointSummary, McpToken,
+  App, ClientApiToken, Component, Deploy, DeployList, EndpointHighlight, EndpointList, EndpointSummary, McpToken,
   SessionToken, TrendSeries, WireApp, WireAppsResponse, WireAuthResponse, WireComponent, WireDeploysResponse,
-  WireEndpointHighlightsResponse, WireTrendsResponse,
+  WireEndpointHighlightsResponse, WireSourceLocationsResponse, WireTrendsResponse,
 } from './types.ts';
 
 const WEB_URL = 'https://www.skylight.io';
@@ -276,6 +276,43 @@ export class SkylightClient {
         throw new SkylightError('INVALID_SUMMARY_RESPONSE');
       }
       return result as EndpointSummary;
+    });
+  }
+
+  /**
+   * Resolves source location digests, as found in trace annotations, to names: an app file path, a gem name, or
+   * `<synthetic>`. Keyed by digest; digests Skylight does not know are absent.
+   */
+  async getSourceLocations({ componentId, digests }: { componentId?: string | undefined; digests: readonly string[] }):
+    Promise<Map<string, string>> {
+    const unique = [...new Set(digests.filter(digest => typeof digest === 'string' && digest))];
+    if (!unique.length) return new Map();
+    return this.#run(async () => {
+      const component = await this.#component(componentId);
+      const names = new Map<string, string>();
+      for (let i = 0; i < unique.length; i += SOURCE_LOCATION_BATCH) {
+        // Ids are `{component}:{digest}`; a bare digest matches nothing.
+        const ids = unique.slice(i, i + SOURCE_LOCATION_BATCH).map(digest => `${component.guid}:${digest}`).join(',');
+        const url = new URL('/source_locations', WEB_URL);
+        url.search = new URLSearchParams({ 'filter[id]': ids }).toString();
+        const result = await this.#request<Partial<WireSourceLocationsResponse>>(url.href, this.#session!);
+        if (!Array.isArray(result?.data)) throw new SkylightError('INVALID_SOURCE_LOCATIONS_RESPONSE');
+        for (const record of result.data) {
+          const { digest, name } = record?.attributes ?? {};
+          if (typeof digest === 'string' && typeof name === 'string') names.set(digest, name);
+        }
+      }
+      return names;
+    });
+  }
+
+  /** One deploy by its Skylight id, e.g. a trace annotation's deploy ref. */
+  async getDeploy({ id }: { id: string }): Promise<Deploy> {
+    if (typeof id !== 'string' || !id) throw new SkylightError('INVALID_DEPLOY_ID');
+    return this.#run(async () => {
+      const result = await this.#request<{ data?: Deploy }>(`${WEB_URL}/deploys/${encodeURIComponent(id)}`, this.#session!);
+      if (typeof result?.data?.attributes?.git_sha !== 'string') throw new SkylightError('INVALID_DEPLOY_RESPONSE');
+      return result.data;
     });
   }
 }

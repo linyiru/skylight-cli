@@ -16,9 +16,9 @@
       "session": {
         "token": "test-session-token",
         "expiry_ttl": 10800,
-        "expiry_ts": 1790385937,
-        "refresh_ttl": 4740,
-        "refresh_ts": 1790379877
+        "expiry_ts": 1790389386,
+        "refresh_ttl": 5340,
+        "refresh_ts": 1790383926
       },
       "data_url": "https://data-v3.skylight.io"
     }

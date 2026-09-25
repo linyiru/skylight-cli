@@ -94,3 +94,6 @@ export function trendRanges(timestamp: WindowStart, duration: number, step: Tren
   }
   return ranges;
 }
+
+/** Source location ids per `filter[id]` request; 40 verified, kept conservative for URL length. */
+export const SOURCE_LOCATION_BATCH = 50;

@@ -23,6 +23,9 @@ export interface LiveContext {
   inspectedEndpoint: string | undefined;
   /** Busiest endpoint whose name carries a `<sk-segment>` tag, if any. */
   segmentEndpoint: string | undefined;
+  /** Source digests and a deploy ref from the N+1 endpoint's first 40 trace nodes (the ones its fixture keeps). */
+  sourceDigests: string[];
+  deployRef: string | undefined;
   /** Minute-aligned start of the last 6h. */
   since6h: number;
 }
@@ -123,6 +126,22 @@ export const SCENARIOS: Scenario[] = [
     request: ctx => ({ method: 'POST', url: `${ctx.dataUrl}/apps/${ctx.componentGuid}/application_highlights`, auth: 'client',
       body: { ranges: [{ timestamp: hourAligned() - hour, step: hour }] } }) },
 
+  { name: 'source-locations.ok', description: 'Source locations by `{component}:{digest}` ids',
+    request: ctx => ctx.sourceDigests.length === 0 ? undefined : ({ method: 'GET', auth: 'session',
+      // Encoded like the client: digests may contain `+`, which unencoded would read as a space.
+      url: `${WEB_URL}/source_locations?${new URLSearchParams({ 'filter[id]': ctx.sourceDigests.map(d => `${ctx.componentGuid}:${d}`).join(',') })}` }) },
+  { name: 'source-locations.bare-digest', description: 'Digest without the component prefix matches nothing',
+    request: ctx => ctx.sourceDigests.length === 0 ? undefined : ({ method: 'GET', auth: 'session',
+      url: `${WEB_URL}/source_locations?${new URLSearchParams({ 'filter[id]': ctx.sourceDigests[0]! })}` }) },
+  { name: 'source-locations.missing-filter', description: 'No filter[id]',
+    request: () => ({ method: 'GET', auth: 'session', url: `${WEB_URL}/source_locations` }) },
+  { name: 'source-locations.client-token', description: 'Client API token where a session token is required',
+    request: ctx => ({ method: 'GET', auth: 'client', url: `${WEB_URL}/source_locations?filter[id]=${ctx.componentGuid}:AAAAA` }) },
+  { name: 'deploy.ok', description: 'One deploy by the id a trace annotation refers to',
+    request: ctx => ctx.deployRef === undefined ? undefined : ({ method: 'GET', auth: 'session', url: `${WEB_URL}/deploys/${ctx.deployRef}` }) },
+  { name: 'deploy.unknown', description: 'Deploy id that does not exist',
+    request: () => ({ method: 'GET', auth: 'session', url: `${WEB_URL}/deploys/AAAAAAAAAAAA` }) },
+
   { name: 'summary.ok', description: 'Busiest endpoint: latency digest, inspections, trace',
     request: ctx => ({ method: 'POST', url: `${ctx.dataUrl}/apps/${ctx.componentGuid}/endpoints/${encodeURIComponent(ctx.endpoint)}/summary`,
       auth: 'client', body: { timestamp: ctx.since6h, duration: 21_600 } }) },
@@ -189,7 +208,8 @@ export async function discover(mcpToken: string): Promise<LiveContext> {
   if (!app || !component) throw new Error('no components visible to this token');
   const since6h = Math.floor(Date.now() / 60_000) * 60 - 21_600;
   const ctx: LiveContext = { mcpToken, session, dataUrl, appGuid: app.guid, componentGuid: component.guid,
-    clientToken: component.client_api_token.token, endpoint: '', inspectedEndpoint: undefined, segmentEndpoint: undefined, since6h };
+    clientToken: component.client_api_token.token, endpoint: '', inspectedEndpoint: undefined, segmentEndpoint: undefined,
+    sourceDigests: [], deployRef: undefined, since6h };
   const highlights = await send({ method: 'POST', url: `${dataUrl}/apps/${component.guid}/endpoint_highlights`, auth: 'client',
     body: { timestamp: since6h, duration: 21_600 } }, ctx);
   type Highlights = { endpoints: { name: string; count: number; inspections?: { nPlusOneQuery?: number } }[] };
@@ -198,5 +218,20 @@ export async function discover(mcpToken: string): Promise<LiveContext> {
   ctx.endpoint = endpoints[0].name;
   ctx.inspectedEndpoint = endpoints.find(e => (e.inspections?.nPlusOneQuery ?? 0) > 0)?.name;
   ctx.segmentEndpoint = endpoints.find(e => e.name.includes('<sk-segment>'))?.name;
+  // The N+1 endpoint runs app code (queries), so its trace carries app source locations with lines.
+  const traced = ctx.inspectedEndpoint ?? ctx.endpoint;
+  const summary = await send({ method: 'POST', url: `${dataUrl}/apps/${component.guid}/endpoints/${encodeURIComponent(traced)}/summary`,
+    auth: 'client', body: { timestamp: since6h, duration: 21_600 } }, ctx);
+  type Annotation = [number, ...unknown[]];
+  const nodes = (summary.body as { trace?: { nodes?: [unknown, unknown, unknown, unknown, [...unknown[], Annotation[]][]][] } }).trace?.nodes ?? [];
+  const digests = new Set<string>();
+  for (const [, , , , spans] of nodes.slice(0, 40)) for (const span of spans) for (const annotation of span.at(-1) as Annotation[]) {
+    if (annotation[0] !== 2) continue;
+    for (const [ref, source] of annotation[1] as [string, string | null][]) {
+      ctx.deployRef ??= ref;
+      if (source) digests.add(source.split(':')[0]!);
+    }
+  }
+  ctx.sourceDigests = [...digests];
   return ctx;
 }

@@ -17,14 +17,15 @@ import type { LiveContext, Recording } from './scenarios.ts';
  * Array caps by `parent.key` (or bare key); the fixtures document shape, not volume. Only arrays the client
  * does not compute over are capped: q-digest nodes and trend series must stay complete.
  */
-const ARRAY_LIMITS: Record<string, number> = { endpoints: 8, data: 5, 'trace.nodes': 12, 'trace.targets': 3 };
+const ARRAY_LIMITS: Record<string, number> = { endpoints: 8, data: 30, 'trace.nodes': 40, 'trace.targets': 3 };
 
 const SAFE_ENVIRONMENTS = new Set(['production', 'staging', 'development', 'test']);
 const SAFE_COMPONENT_NAMES = new Set(['web', 'worker']);
 /** Endpoint-name structure: namespaces and actions are renamed, formats and markers are not. */
 const ENDPOINT_WORDS = new Set(['graphql', 'sk', 'segment', 'json', 'html', 'xml', 'csv', 'js', 'text', 'Controller']);
 const SQL_WORDS = new Set(['SELECT', 'FROM', 'INSERT', 'INTO', 'UPDATE', 'DELETE', 'WHERE', 'JOIN', 'AND', 'OR', 'IN']);
-const SAFE_WORDS = new Set([...ENDPOINT_WORDS, ...SQL_WORDS]);
+const SOURCE_WORDS = new Set(['app', 'lib', 'rb', 'erb', 'haml', 'slim']);
+const SAFE_WORDS = new Set([...ENDPOINT_WORDS, ...SQL_WORDS, ...SOURCE_WORDS]);
 
 /** Numeric fields by what they measure (array items are matched without their `[]` suffix). */
 const VOLUME_KEYS = new Set(['count', 'counts', 'objectAllocations']);
@@ -110,12 +111,31 @@ export class Sanitizer {
     return value > 0 ? Math.max(1, Math.round(value * this.#volume)) : value;
   }
 
+  /** Integers stay integers; fractional timings (trace ms) keep one decimal. */
   #scaleLatency(value: number): number {
-    return Math.max(0, Math.round(value * this.#latency));
+    const scaled = Math.max(0, value * this.#latency);
+    return Number.isInteger(value) ? Math.round(scaled) : Math.round(scaled * 10) / 10;
+  }
+
+  /**
+   * A trace node `[parent, category, title, description, spans]`. Parent and target indexes keep the tree intact;
+   * request counts and timings are scaled like everything else, allocations and unknown fields are zeroed.
+   */
+  #traceNode(node: unknown[]): unknown[] {
+    const [parent, category, title, description, spans] = node;
+    const text = (v: unknown) => (typeof v === 'string' ? (CATEGORY.test(v) ? v : this.#text(v, 'str')) : v);
+    return [parent, text(category), typeof title === 'string' ? this.#sql(title) : title,
+      typeof description === 'string' ? this.#text(description, 'sql') : description,
+      Array.isArray(spans) ? spans.map(span => {
+        if (!Array.isArray(span)) return span;
+        const [target, samples, , , start, duration, , annotations] = span as unknown[];
+        return [target, this.#scaleVolume(Number(samples)), 0, 0, this.#scaleLatency(Number(start)), this.#scaleLatency(Number(duration)), 0,
+          this.#value(annotations, 'annotations', ['trace', 'nodes', '[]', 'annotations'])];
+      }) : spans];
   }
 
   #number(value: number, key: string, path: string[]): number {
-    // Inside trace tuples (not trace.count/timestamp/duration).
+    // Inside trace tuples (not trace.count/timestamp/duration): anything not handled by #traceNode.
     if (path[0] === 'trace' && path.length > 2) return 0;
     const base = key.replace(/\[\]$/, '');
     if (VOLUME_KEYS.has(base)) return this.#scaleVolume(value);
@@ -146,6 +166,32 @@ export class Sanitizer {
       max: Math.max(min, Math.floor(digest.max * factor)), nodes };
   }
 
+  /** Source digests are 5 characters; pseudonyms keep that shape and stay consistent across fixtures. */
+  #sourceDigest(digest: string): string {
+    if (!this.#fixed.has(digest)) this.#remember(digest, `d${this.#hash(`sd:${digest}`, 4)}`, 'digest');
+    return this.#fixed.get(digest)!;
+  }
+
+  /** Trace source values are `digest` or `digest:line`; lines are kept. */
+  #sourceValue(value: string): string {
+    const [digest = '', line] = value.split(':');
+    return line === undefined ? this.#sourceDigest(digest) : `${this.#sourceDigest(digest)}:${line}`;
+  }
+
+  /** Source location ids are `{component}:{digest}`. */
+  #sourceId(value: string): string {
+    const [component = '', digest = ''] = value.split(':');
+    const replacement = `${this.id(component)}:${this.#sourceDigest(digest)}`;
+    this.#remember(value, replacement, 'source-id');
+    return replacement;
+  }
+
+  /** App paths and gem names: every identifier renamed, separators and common extensions kept. */
+  #sourceName(value: string): string {
+    if (value === '<synthetic>') return value;
+    return value.replace(/[A-Za-z_][A-Za-z0-9_]*/g, token => (SOURCE_WORDS.has(token) ? token : this.#word(token)));
+  }
+
   #hex(value: string): string {
     this.originals.set(value, 'hex');
     return this.#hash(`h:${value}`, value.length).padEnd(value.length, '0');
@@ -153,6 +199,13 @@ export class Sanitizer {
 
   #value(value: unknown, key: string, path: string[]): unknown {
     if (Array.isArray(value)) {
+      // Trace annotations: keep the kind tag, map source refs consistently with source_locations fixtures.
+      if (path[0] === 'trace' && value[0] === 2 && Array.isArray(value[1])) {
+        return [2, (value[1] as unknown[]).map(pair => !Array.isArray(pair) ? pair
+          : [typeof pair[0] === 'string' ? this.id(pair[0]) : pair[0], typeof pair[1] === 'string' ? this.#sourceValue(pair[1]) : pair[1]])];
+      }
+      if (path[0] === 'trace' && value[0] === 1 && value.length === 4) return [1, this.#scaleVolume(Number(value[1])), 0, 0];
+      if (path.join('.') === 'trace.nodes.[]' && value.length === 5 && typeof value[1] === 'string') return this.#traceNode(value);
       const limit = ARRAY_LIMITS[path.slice(-2).join('.')] ?? ARRAY_LIMITS[path.at(-1) ?? ''];
       const kept = limit === undefined ? value : value.slice(0, limit);
       // Inspection events are positional: [category, title, sql].
@@ -181,8 +234,10 @@ export class Sanitizer {
           return replacement;
         }
         return this.#text(value, 'test-token');
-      case 'guid': case 'id': return this.id(value);
-      case 'type': case 'start_at': case 'end_at': return value;
+      case 'guid': case 'id': return value.includes(':') ? this.#sourceId(value) : this.id(value);
+      case 'collector_id': return this.id(value);
+      case 'digest': return this.#sourceDigest(value);
+      case 'type': case 'start_at': case 'end_at': case 'created_at': case 'updated_at': return value;
       // Upstream error text (e.g. {"error": {"reason", "message"}}) is what fixtures exist to preserve.
       case 'message': case 'reason': return path.includes('error') ? this.#message(value) : this.#text(value, 'str');
       case 'data_url': return /^https:\/\/([a-z0-9-]+\.)*skylight\.io\/?$/.test(value) ? value : 'https://data-v3.skylight.io';
@@ -190,6 +245,7 @@ export class Sanitizer {
       case 'deploy_id': case 'git_sha': return /^[0-9a-f]+$/i.test(value) ? this.#hex(value) : this.#text(value, 'deploy');
       case 'description': return this.#text(value, 'description');
       case 'name':
+        if (path.at(-2) === 'attributes') return this.#sourceName(value);
         if (path.includes('components') && SAFE_COMPONENT_NAMES.has(value)) return value;
         if (path.includes('endpoints') || path.includes('endpoint')) return this.endpoint(value);
         return this.#text(value, 'name');
@@ -209,8 +265,13 @@ export class Sanitizer {
     if (parts.includes('endpoints')) this.endpoint(decodeURIComponent(parts.slice(parts.indexOf('endpoints') + 1, -1).join('/')));
     const component = parsed.searchParams.get('app_component_id');
     if (component) this.id(component);
-    let out = url;
-    for (const [original, replacement] of [...this.#fixed].sort((a, b) => b[0].length - a[0].length)) {
+    const deploy = parts[parts.indexOf('deploys') + 1];
+    if (parts.includes('deploys') && deploy) this.id(decodeURIComponent(deploy));
+    // filter[id] lists `{component}:{digest}` ids (or bare digests); map each and re-encode the list.
+    let out = url.replace(/(filter(?:\[|%5B)id(?:\]|%5D)=)([^&]*)/, (_, key: string, list: string) => key + encodeURIComponent(
+      decodeURIComponent(list.replaceAll('+', ' ')).split(',')
+        .map(id => (id.includes(':') ? this.#sourceId(id) : this.#sourceDigest(id))).join(',')));
+    for (const [original, replacement] of this.#longFixed()) {
       for (const form of [encodeURIComponent, (v: string) => v.replaceAll('#', '%23'), (v: string) => v]) {
         out = out.split(form(original)).join(form(replacement));
       }
@@ -218,10 +279,15 @@ export class Sanitizer {
     return out;
   }
 
+  /** Replacements for free-text scrubbing: longest first, skipping short ones (digests) that could hit ordinary words. */
+  #longFixed(): [string, string][] {
+    return [...this.#fixed].filter(([original]) => original.length >= 6).sort((a, b) => b[0].length - a[0].length);
+  }
+
   /** Error bodies are upstream messages; keep them but scrub any original value that leaked into them. */
   #message(text: string): string {
     let out = text;
-    for (const [original, replacement] of [...this.#fixed].sort((a, b) => b[0].length - a[0].length)) {
+    for (const [original, replacement] of this.#longFixed()) {
       out = out.split(original).join(replacement);
     }
     return out;

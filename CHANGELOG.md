@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `trace` shows each event's source: its app `file:line`, or `[gem]` for library code, and the deploy that
+  recorded it. `--no-sources` skips the lookup, and a failed lookup does not affect the trace.
+- `getSourceLocations()`, `getDeploy()`, `traceSourceRefs()`, `parseTraceSource()`, and `locateTraceTree()` in the
+  library.
+
+### Changed
+
+- Recorded test fixtures keep the trace structure, with timings and request counts scaled like other metrics, and
+  include source locations and deploys with every path segment renamed.
+
 ## [0.3.0] - 2026-09-25
 
 ### Added

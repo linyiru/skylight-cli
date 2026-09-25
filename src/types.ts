@@ -187,3 +187,22 @@ export interface EndpointSummary {
   inspections: { timestamp: number; duration: number; results: Inspection[] };
   trace: { count: number; timestamp: number; duration: number; nodes: TraceNode[]; targets: TraceTarget[] };
 }
+
+/** GET www/source_locations?filter[id]={component}:{digest},… (JSON:API). Unknown ids are simply absent. */
+export interface WireSourceLocation {
+  id: string;
+  type: 'source_locations';
+  attributes: {
+    /** An app file path, a gem name, or `<synthetic>` for events without source. */
+    name: string;
+    digest: string;
+    collector_id: string;
+    created_at: string;
+    updated_at: string;
+  };
+}
+
+export interface WireSourceLocationsResponse {
+  data: WireSourceLocation[];
+  meta: Record<string, unknown>;
+}

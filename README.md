@@ -26,6 +26,7 @@ skylight-cli endpoints -c staging/web --at 1790000000 --since 1h
 skylight-cli endpoint users#show                 # latency + N+1 queries for one endpoint
 skylight-cli trace graphql:CoursePage            # aggregated trace tree: start, duration, self time, allocations
 skylight-cli trace users#show --latency 500-5000 # only slow requests; --full shows every event
+                                                 # each event shows its app file:line, or [gem]
 skylight-cli trends --since 24h                  # app-wide count and p50/p95/p99, 10-minute buckets
 skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel requests
 skylight-cli deploys -n 5                        # most recent first
@@ -43,6 +44,7 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 | `--full` | Trace: show every event. By default, pass-through middleware is folded and events in under 1% of requests are hidden. |
 | `--min-ms` | Trace: hide events shorter than this many ms on average. |
 | `--latency` | Trace: only requests whose response time is in `[a, b)` ms, e.g. `500-5000`. |
+| `--no-sources` | Trace: skip resolving source locations (two extra requests). |
 | `--step` | Trends bucket: `60`, `600`, or `3600` seconds. Default: 60 up to 2h, 600 up to 24h, else 3600. |
 | `--json` | Machine-readable output. |
 
@@ -53,6 +55,8 @@ used), or a search term that matches exactly one endpoint; otherwise they list c
 
 `trace` averages each event over the requests that include it. Self time is computed per latency bucket before
 averaging. `SEEN` is the share of requests that include the event, as in Skylight's "Occurs in N% of requests".
+Each event is followed by its app `file:line` (with `(+N)` for more call sites), or `[gem]` when only library code is
+involved, resolved for the deploy that recorded the trace. If the lookup fails, the trace still prints.
 Its p50/p95/p99 are Skylight's own figures; min and max come from the endpoint's latency digest.
 
 Latencies are in milliseconds.
@@ -60,7 +64,7 @@ Latencies are in milliseconds.
 ## Library
 
 ```js
-import { SkylightClient, buildTraceTree, condenseTraceTree } from 'skylight-cli';
+import { SkylightClient, buildTraceTree, condenseTraceTree, locateTraceTree, traceSourceRefs } from 'skylight-cli';
 
 const client = new SkylightClient(); // reads SKYLIGHT_MCP_TOKEN
 const [component] = await client.listComponents();
@@ -69,6 +73,9 @@ const { data } = await client.listDeploys({ componentId: component.guid, limit: 
 const trends = await client.getLatencyTrends({ componentId: component.guid, duration: 86_400 });
 const detail = await client.getEndpointDetail({ componentId: component.guid, endpoint: endpoints[0]!.name });
 const tree = condenseTraceTree(buildTraceTree(detail.trace)!); // { title, startMs, durationMs, selfMs, children, … }
+const { digests } = traceSourceRefs(tree);
+const located = locateTraceTree(tree, await client.getSourceLocations({ componentId: component.guid, digests }));
+// located.children[0].locations → [{ name: 'app/models/user.rb', line: 12, inApp: true, … }]
 ```
 
 Types ship with the package. Upstream limits are exported as constants from `src/spec.ts`, for example
@@ -93,6 +100,8 @@ or apps issues fresh ones.
 | POST | `{data_url}/apps/{component}/endpoint_highlights` | client | endpoint metrics; body `{timestamp, duration}` |
 | POST | `{data_url}/apps/{component}/endpoints/{encodeURIComponent(name)}/summary` | client | latency q-digest, inspections, trace |
 | POST | `{data_url}/apps/{component}/application_highlights` | client | trends; body `{ranges: [{timestamp, step, count}]}` |
+| GET | `www.skylight.io/source_locations?filter[id]={component}:{digest},…` | session | source location names (JSON:API) |
+| GET | `www.skylight.io/deploys/{id}` | session | one deploy, e.g. a trace annotation's deploy ref |
 
 - Trends: `step` must be 60, 600, or 3600, and `step × count` summed over all ranges must be at most 7 days.
   Longer windows take several requests.
@@ -102,8 +111,13 @@ or apps issues fresh ones.
   - `trace.targets` are 10 ms latency buckets that samples were drawn from.
   - Each node is `[parent index, category, title, description, spans]`; the description is the SQL for queries.
   - Each span holds one node's timing within one target: start and duration in ms, relative to the parent.
-  - A span also carries allocations and a `[deploy ref, source location id]` pair. The UI shows the pair as the
-    deploy's git sha and a `file.rb:line`.
+  - A span also carries allocations and `[deploy ref, source]` pairs, where the source is `digest:line` for app code
+    and a bare `digest` for gems. The UI shows them as the deploy's git sha and a `file.rb:line`.
+- Source locations, found in Skylight's frontend and verified 2026-09-25:
+  - Ids are `{component guid}:{digest}`; a bare digest matches nothing. Several ids go in one comma-separated
+    `filter[id]`, and must be URL-encoded because digests can contain `+`. Unknown ids are left out of the result.
+  - `name` is an app file path, a gem name, or `<synthetic>` for events without source.
+  - The deploy ref resolves through `/deploys/{id}`; its `git_sha` is what the UI shows.
   - Three span fields are still unknown.
 - Latencies are in milliseconds, confirmed against the UI (typical response = p50, problem response = p95).
 - Q-digest nodes are `[lower, level, count]`, counting samples in `[lower, lower + 2^level)`.
@@ -120,6 +134,7 @@ Error responses, as recorded in [`test/fixtures`](test/fixtures):
 | `/deploys` with `Accept: application/json` | 406 | empty; the client sends `*/*` |
 | Malformed body, bad trends `step`, missing fields | 422 | `text/plain` serde message, e.g. `ranges[0].step: InvalidRangeStep` |
 | Endpoint window over 24h, trends over 7 days | 422 | empty |
+| `/source_locations` without `filter[id]` | 400 | empty |
 | Summary name not percent-encoded | 404 | empty |
 
 ## Development

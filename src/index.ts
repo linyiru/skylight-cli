@@ -6,5 +6,9 @@ export { SkylightError } from './errors.ts';
 export type { SkylightErrorCode } from './errors.ts';
 export * from './spec.ts';
 export type * from './types.ts';
-export { buildTraceTree, condenseTraceTree, countTraceNodes } from './trace.ts';
-export type { CondenseOptions, TraceTreeNode, TraceTreeOptions } from './trace.ts';
+export {
+  buildTraceTree, condenseTraceTree, countTraceNodes, locateTraceTree, parseTraceSource, traceSourceRefs,
+} from './trace.ts';
+export type {
+  CondenseOptions, LocatedTraceTreeNode, TraceSourceLocation, TraceSourceRef, TraceTreeNode, TraceTreeOptions,
+} from './trace.ts';

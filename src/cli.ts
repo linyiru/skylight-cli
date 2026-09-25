@@ -6,7 +6,10 @@ import {
   DEPLOY_WINDOW, ENDPOINT_SORT_KEYS, ENDPOINT_WINDOW, LIMIT, TREND_STEPS, TREND_WINDOW, isEndpointSortKey, isTrendStep,
   type EndpointSortKey, type TrendStep, type WindowStart,
 } from './spec.ts';
-import { buildTraceTree, condenseTraceTree, countTraceNodes, type TraceTreeNode } from './trace.ts';
+import {
+  buildTraceTree, condenseTraceTree, countTraceNodes, locateTraceTree, traceSourceRefs, type LocatedTraceTreeNode,
+  type TraceTreeNode,
+} from './trace.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -48,6 +51,7 @@ Options:
                        and hides events in fewer than 1% of requests)
       --min-ms <n>     trace: hide events shorter than n ms on average
       --latency <a-b>  trace: only requests whose response time is in [a, b) ms
+      --no-sources     trace: skip resolving file:line and gem names (saves requests)
       --json           Print JSON instead of a table
   -h, --help           Show this help
   -v, --version        Show version
@@ -67,6 +71,7 @@ const OPTIONS = {
   full: { type: 'boolean' },
   'min-ms': { type: 'string' },
   latency: { type: 'string' },
+  'no-sources': { type: 'boolean' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
@@ -185,8 +190,20 @@ function latencyRange(value: string | undefined): [number, number] | undefined {
 
 const ms = (value: number) => value.toFixed(1);
 
-function traceLines(node: TraceTreeNode, prefix = '', last = true, isRoot = true): string[] {
-  const label = `${isRoot ? '' : `${prefix}${last ? '└─ ' : '├─ '}`}${node.title ?? node.category}`;
+/** `app/x.rb:12 (+2)` for app code, `[gem]` when only gems are involved, nothing for synthetic events. */
+function sourceSuffix(node: TraceTreeNode | LocatedTraceTreeNode): string {
+  if (!('locations' in node) || !node.locations.length) return '';
+  const [first] = node.locations;
+  const app = node.locations.filter(l => l.inApp);
+  if (app.length) {
+    const others = new Set(app.map(l => `${l.name}:${l.line}`)).size - 1;
+    return `  ${first!.name ?? '(unknown source)'}:${first!.line}${others ? ` (+${others})` : ''}`;
+  }
+  return first!.name ? `  [${first!.name}]` : '';
+}
+
+function traceLines(node: TraceTreeNode | LocatedTraceTreeNode, prefix = '', last = true, isRoot = true): string[] {
+  const label = `${isRoot ? '' : `${prefix}${last ? '└─ ' : '├─ '}`}${node.title ?? node.category}${sourceSuffix(node)}`;
   const row = [ms(node.startMs).padStart(7), ms(node.durationMs).padStart(7), ms(node.selfMs).padStart(7),
     Math.round(node.allocations).toLocaleString('en-US').padStart(9), `${Math.round(node.occurrence * 100)}%`.padStart(5), label].join('  ');
   const childPrefix = isRoot ? '' : `${prefix}${last ? '   ' : '│  '}`;
@@ -256,13 +273,30 @@ const COMMANDS: Record<string, Command> = {
     const shown = options.full ? condenseTraceTree(tree, { maxSelfMs: -1, minDurationMs: minMs })
       : condenseTraceTree(tree, { minDurationMs: minMs, minOccurrence: 0.01 });
     const hidden = countTraceNodes(tree) - countTraceNodes(shown);
+    let result: TraceTreeNode | LocatedTraceTreeNode = shown;
+    let sources = '';
+    if (!options['no-sources']) {
+      // Source names are a nicety: a failed lookup must not lose the trace.
+      try {
+        const { digests, deployRefs } = traceSourceRefs(shown);
+        const [names, deploys] = await Promise.all([client.getSourceLocations({ componentId, digests }),
+          Promise.all(deployRefs.map(id => client.getDeploy({ id }).then(d => [id, d.attributes.git_sha] as const)))]);
+        result = locateTraceTree(shown, names, new Map(deploys));
+        const shas = deploys.map(([, sha]) => sha.slice(0, 7));
+        sources = shas.length ? `Source    deploy ${shas.join(', ')}; ${names.size} of ${digests.length} locations resolved\n` : '';
+      } catch (error) {
+        const reason = error instanceof SkylightError ? (error.status ? `HTTP ${error.status}` : error.code) : 'lookup failed';
+        sources = `Source    unavailable (${reason}); --no-sources skips the lookup\n`;
+      }
+    }
     const text = `Endpoint  ${detail.endpoint.name}\n`
       + `Window    ${time(detail.endpoint.timestamp)} + ${detail.endpoint.duration}s; ${tree.samples} requests`
       + `${range ? ` at ${range[0]}-${range[1]} ms` : ''}\n`
+      + sources
       + (hidden ? `Hidden    ${hidden} events (folded middleware${options.full ? '' : ', under 1% of requests'}${minMs ? `, under ${minMs} ms` : ''}); --full shows all\n` : '')
       + `\n  START      DUR     SELF     ALLOC   SEEN  EVENT (times in ms, averaged over requests that include the event)\n`
-      + traceLines(shown).join('\n') + '\n';
-    return { json: shown, text };
+      + traceLines(result).join('\n') + '\n';
+    return { json: result, text };
   },
 
   async trends(client, options, componentId) {
