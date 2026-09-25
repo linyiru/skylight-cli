@@ -144,6 +144,16 @@ Source files import each other with `.ts` extensions, and `tsc` rewrites them to
 (`rewriteRelativeImportExtensions`). `erasableSyntaxOnly` keeps the code runnable by Node's type stripping, so
 there are no enums or parameter properties.
 
+## Releasing
+
+Push a `v*` tag. `.github/workflows/publish.yml` builds, tests, and publishes through npm trusted publishing
+(OIDC), with provenance. No npm token is stored in GitHub.
+
+```sh
+npm version minor   # bumps package.json and creates the v* tag
+git push --follow-tags
+```
+
 ## License
 
 MIT
