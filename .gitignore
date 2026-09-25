@@ -1,0 +1,7 @@
+node_modules/
+coverage/
+.env
+.env.*
+# Local research artifacts; never commit (may reference account structure).
+.tools/
+captures/

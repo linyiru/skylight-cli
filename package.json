@@ -1,0 +1,16 @@
+{
+  "name": "skylight-cli",
+  "version": "0.1.0",
+  "description": "Unofficial read-only CLI and API client for Skylight (skylight.io), using your Skylight MCP token",
+  "keywords": ["skylight", "apm", "rails", "performance", "cli"],
+  "license": "MIT",
+  "author": "linyiru",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "skylight-cli": "bin/skylight-cli.js" },
+  "exports": "./src/skylight-client.js",
+  "files": ["bin/", "src/"],
+  "scripts": {
+    "test": "node --test"
+  }
+}
