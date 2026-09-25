@@ -8,3 +8,5 @@ captures/
 dist/
 # HMAC key for fixture pseudonyms; keep local.
 .fixture-key
+# Local Claude Code settings
+.claude/
