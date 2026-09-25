@@ -211,6 +211,22 @@ describe('CLI on recorded responses', () => {
     assert.match(stdout, /N\+1 query +severity \d+ +db\.sql\.query +SELECT FROM /);
   });
 
+  test('trace renders the recorded trace as a tree', async () => {
+    const summary = fixture('summary.ok').response.body as EndpointSummary;
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: { name: string }[] };
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
+        endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
+      replay('summary.ok'));
+    const { code, stdout } = await cli(['trace', summary.endpoint.name, '--full']);
+    assert.equal(code, 0);
+    const events = stdout.split('\n').filter(line => /^\s+[\d.]+\s+[\d.]+/.test(line));
+    // The fixture keeps the first 12 nodes; every one of them is reachable from the root.
+    assert.equal(events.length, summary.trace.nodes.length);
+    assert.match(events[0]!, /app\.rack\.request$/);
+    assert.match(events[1]!, /[├└]─ /);
+  });
+
   test('an upstream 401 is exit code 1 with a token hint', async () => {
     server.use(replay('auth.invalid-token'));
     const { code, stderr } = await cli(['auth']);

@@ -24,6 +24,8 @@ skylight-cli endpoints --sort p95 -n 10          # slowest endpoints, last 6h
 skylight-cli endpoints -s users#index --since 24h
 skylight-cli endpoints -c staging/web --at 1790000000 --since 1h
 skylight-cli endpoint users#show                 # latency + N+1 queries for one endpoint
+skylight-cli trace graphql:CoursePage            # aggregated trace tree: start, duration, self time, allocations
+skylight-cli trace users#show --latency 500-5000 # only slow requests; --full shows every event
 skylight-cli trends --since 24h                  # app-wide count and p50/p95/p99, 10-minute buckets
 skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel requests
 skylight-cli deploys -n 5                        # most recent first
@@ -38,12 +40,19 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 | `-n, --limit` | Rows to show, 1–500 (default 20). Applied after search and sort. |
 | `-s, --search` | Endpoint name filter; `users#index` also matches `UsersController#index` and `Admin::UsersController#index`. |
 | `--sort` | `count`, `p50`, `p95`, or `p99` (descending). Default: Skylight's order. |
+| `--full` | Trace: show every event. By default, pass-through middleware is folded and events in under 1% of requests are hidden. |
+| `--min-ms` | Trace: hide events shorter than this many ms on average. |
+| `--latency` | Trace: only requests whose response time is in `[a, b)` ms, e.g. `500-5000`. |
 | `--step` | Trends bucket: `60`, `600`, or `3600` seconds. Default: 60 up to 2h, 600 up to 24h, else 3600. |
 | `--json` | Machine-readable output. |
 
 Exit codes: `0` success, `1` API or network failure, `2` usage error.
 
-`endpoint <name>` accepts a search term when it matches exactly one endpoint; otherwise it lists candidates.
+`endpoint <name>` and `trace <name>` accept a name without its `<sk-segment>` variant (the non-`error` variant is
+used), or a search term that matches exactly one endpoint; otherwise they list candidates.
+
+`trace` averages each event over the requests that include it. Self time is computed per latency bucket before
+averaging. `SEEN` is the share of requests that include the event, as in Skylight's "Occurs in N% of requests".
 Its p50/p95/p99 are Skylight's own figures; min and max come from the endpoint's latency digest.
 
 Latencies are in milliseconds.
@@ -51,7 +60,7 @@ Latencies are in milliseconds.
 ## Library
 
 ```js
-import { SkylightClient } from 'skylight-cli';
+import { SkylightClient, buildTraceTree, condenseTraceTree } from 'skylight-cli';
 
 const client = new SkylightClient(); // reads SKYLIGHT_MCP_TOKEN
 const [component] = await client.listComponents();
@@ -59,6 +68,7 @@ const { endpoints } = await client.listEndpoints({ componentId: component.guid, 
 const { data } = await client.listDeploys({ componentId: component.guid, limit: 5 });
 const trends = await client.getLatencyTrends({ componentId: component.guid, duration: 86_400 });
 const detail = await client.getEndpointDetail({ componentId: component.guid, endpoint: endpoints[0]!.name });
+const tree = condenseTraceTree(buildTraceTree(detail.trace)!); // { title, startMs, durationMs, selfMs, children, … }
 ```
 
 Types ship with the package. Upstream limits are exported as constants from `src/spec.ts`, for example

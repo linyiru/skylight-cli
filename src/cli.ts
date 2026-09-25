@@ -6,7 +6,8 @@ import {
   DEPLOY_WINDOW, ENDPOINT_SORT_KEYS, ENDPOINT_WINDOW, LIMIT, TREND_STEPS, TREND_WINDOW, isEndpointSortKey, isTrendStep,
   type EndpointSortKey, type TrendStep, type WindowStart,
 } from './spec.ts';
-import type { Component, Deploy, EndpointHighlight, Inspection } from './types.ts';
+import { buildTraceTree, condenseTraceTree, countTraceNodes, type TraceTreeNode } from './trace.ts';
+import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -23,7 +24,10 @@ Commands:
   components           List components (guid, environment, name)
   endpoints            List endpoint metrics for a component
   endpoint <name>      Latency and inspections (e.g. N+1 queries) for one endpoint;
-                       <name> may be a search term that matches exactly one endpoint
+                       <name> may omit the <sk-segment> variant, or be a search term
+                       that matches exactly one endpoint
+  trace <name>         The endpoint's aggregated trace as a tree: when each event starts,
+                       how long it takes, its self time and allocations, and how often it occurs
   trends               App-wide request count and latency over time
   deploys              List deploys for a component
 
@@ -31,7 +35,7 @@ Options:
   -c, --component <c>  Component guid, "environment/name", or unique name
                        (default: $SKYLIGHT_COMPONENT_ID, or the only component)
       --since <d>      Window length: 90s, 30m, 6h, 45d, or seconds
-                       endpoints/endpoint: default ${hours(ENDPOINT_WINDOW.default)}, max ${hours(ENDPOINT_WINDOW.max)}
+                       endpoints/endpoint/trace: default ${hours(ENDPOINT_WINDOW.default)}, max ${hours(ENDPOINT_WINDOW.max)}
                        trends: default ${days(TREND_WINDOW.default)}, max ${days(TREND_WINDOW.max)}
                        deploys: default ${days(DEPLOY_WINDOW.default)}, max ${days(DEPLOY_WINDOW.max)}
       --at <unix>      Window start in unix seconds (default: now minus --since)
@@ -40,6 +44,10 @@ Options:
       --sort <key>     endpoints: ${ENDPOINT_SORT_KEYS.join(' | ')} (default: upstream order)
       --step <s>       trends: bucket size in seconds, ${TREND_STEPS.join(' | ')}
                        (default: 60 up to 2h, 600 up to 24h, else 3600)
+      --full           trace: show every event (default folds pass-through middleware
+                       and hides events in fewer than 1% of requests)
+      --min-ms <n>     trace: hide events shorter than n ms on average
+      --latency <a-b>  trace: only requests whose response time is in [a, b) ms
       --json           Print JSON instead of a table
   -h, --help           Show this help
   -v, --version        Show version
@@ -56,6 +64,9 @@ const OPTIONS = {
   search: { type: 'string', short: 's' },
   sort: { type: 'string' },
   step: { type: 'string' },
+  full: { type: 'boolean' },
+  'min-ms': { type: 'string' },
+  latency: { type: 'string' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
@@ -143,7 +154,44 @@ interface Output { json: unknown; text: string }
 type Command = (client: SkylightClient, options: Options, componentId: string | undefined, args: string[]) => Promise<Output>;
 
 /** Positional arguments each command takes after its name. */
-const ARGUMENTS: Record<string, string[]> = { endpoint: ['<name>'] };
+const ARGUMENTS: Record<string, string[]> = { endpoint: ['<name>'], trace: ['<name>'] };
+
+/** Resolves a search term to one canonical endpoint (with its <sk-segment> tag), then fetches its summary. */
+async function endpointSummary(client: SkylightClient, options: Options, componentId: string | undefined, query: string):
+  Promise<{ highlight: EndpointHighlight; detail: EndpointSummary }> {
+  const seconds = duration(options.since, ENDPOINT_WINDOW.default);
+  // One pinned start, so the search and the summary cover the same window.
+  const timestamp = pinnedStart(windowStart(options.at), seconds);
+  const matches = await client.listEndpoints({ componentId, timestamp, duration: seconds, limit: LIMIT.max, search: query, sortBy: 'count' });
+  // Prefer an exact name; then, ignoring the <sk-segment> variant, the one variant that is not `error`.
+  const base = (name: string) => name.replace(/<sk-segment>.*<\/sk-segment>$/, '');
+  const sameBase = matches.endpoints.filter(e => base(e.name) === query && !e.name.endsWith('<sk-segment>error</sk-segment>'));
+  const highlight = matches.endpoints.find(e => e.name === query)
+    ?? (sameBase.length === 1 ? sameBase[0] : undefined)
+    ?? (matches.total === 1 ? matches.endpoints[0] : undefined);
+  if (!highlight) {
+    throw new UsageError(matches.total === 0 ? `No endpoint matching "${query}" had requests in this window`
+      : `"${query}" matches ${matches.total} endpoints; use the full name:\n${matches.endpoints.slice(0, 10).map(e => `  ${e.name}`).join('\n')}`);
+  }
+  return { highlight, detail: await client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp, duration: seconds }) };
+}
+
+function latencyRange(value: string | undefined): [number, number] | undefined {
+  if (value === undefined) return undefined;
+  const match = /^(\d+)-(\d+)$/.exec(value);
+  if (!match || Number(match[1]) >= Number(match[2])) throw new UsageError(`Invalid --latency: ${value} (expected e.g. 100-500)`);
+  return [Number(match[1]), Number(match[2])];
+}
+
+const ms = (value: number) => value.toFixed(1);
+
+function traceLines(node: TraceTreeNode, prefix = '', last = true, isRoot = true): string[] {
+  const label = `${isRoot ? '' : `${prefix}${last ? '└─ ' : '├─ '}`}${node.title ?? node.category}`;
+  const row = [ms(node.startMs).padStart(7), ms(node.durationMs).padStart(7), ms(node.selfMs).padStart(7),
+    Math.round(node.allocations).toLocaleString('en-US').padStart(9), `${Math.round(node.occurrence * 100)}%`.padStart(5), label].join('  ');
+  const childPrefix = isRoot ? '' : `${prefix}${last ? '   ' : '│  '}`;
+  return [row, ...node.children.flatMap((child, i) => traceLines(child, childPrefix, i === node.children.length - 1, false))];
+}
 
 const COMPONENT_COLUMNS: Column<Component>[] = [
   ['GUID', c => c.guid], ['ENVIRONMENT', c => c.environment], ['NAME', c => c.name], ['APP', c => c.appName]];
@@ -185,17 +233,7 @@ const COMMANDS: Record<string, Command> = {
   },
 
   async endpoint(client, options, componentId, [query]) {
-    const seconds = duration(options.since, ENDPOINT_WINDOW.default);
-    const timestamp = pinnedStart(windowStart(options.at), seconds);
-    // Resolve a search term to one canonical name (with its <sk-segment> tag) from the same window.
-    const matches = await client.listEndpoints({ componentId, timestamp, duration: seconds, limit: LIMIT.max, search: query!, sortBy: 'count' });
-    const exact = matches.endpoints.find(e => e.name === query);
-    const highlight = exact ?? (matches.total === 1 ? matches.endpoints[0] : undefined);
-    if (!highlight) {
-      throw new UsageError(matches.total === 0 ? `No endpoint matching "${query}" had requests in this window`
-        : `"${query}" matches ${matches.total} endpoints; use the full name:\n${matches.endpoints.slice(0, 10).map(e => `  ${e.name}`).join('\n')}`);
-    }
-    const detail = await client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp, duration: seconds });
+    const { highlight, detail } = await endpointSummary(client, options, componentId, query!);
     const { endpoint, inspections } = detail;
     const text = `Endpoint     ${endpoint.name}\n`
       + `Window       ${time(endpoint.timestamp)} + ${endpoint.duration}s\n`
@@ -204,6 +242,27 @@ const COMMANDS: Record<string, Command> = {
       + `Inspections  ${inspections.results.length || 'none'}\n`
       + inspections.results.map(inspectionText).join('');
     return { json: { ...detail, highlight }, text };
+  },
+
+  async trace(client, options, componentId, [query]) {
+    const range = latencyRange(options.latency);
+    const minMs = options['min-ms'] === undefined ? 0 : Number(options['min-ms']);
+    if (!Number.isFinite(minMs) || minMs < 0) throw new UsageError(`Invalid --min-ms: ${options['min-ms']}`);
+    const { detail } = await endpointSummary(client, options, componentId, query!);
+    const tree = buildTraceTree(detail.trace, range ? { targets: t => t.start >= range[0] && t.start < range[1] } : {});
+    if (!tree) {
+      return { json: null, text: `Endpoint  ${detail.endpoint.name}\nNo trace samples${range ? ' in that latency range' : ''} for this window.\n` };
+    }
+    const shown = options.full ? condenseTraceTree(tree, { maxSelfMs: -1, minDurationMs: minMs })
+      : condenseTraceTree(tree, { minDurationMs: minMs, minOccurrence: 0.01 });
+    const hidden = countTraceNodes(tree) - countTraceNodes(shown);
+    const text = `Endpoint  ${detail.endpoint.name}\n`
+      + `Window    ${time(detail.endpoint.timestamp)} + ${detail.endpoint.duration}s; ${tree.samples} requests`
+      + `${range ? ` at ${range[0]}-${range[1]} ms` : ''}\n`
+      + (hidden ? `Hidden    ${hidden} events (folded middleware${options.full ? '' : ', under 1% of requests'}${minMs ? `, under ${minMs} ms` : ''}); --full shows all\n` : '')
+      + `\n  START      DUR     SELF     ALLOC   SEEN  EVENT (times in ms, averaged over requests that include the event)\n`
+      + traceLines(shown).join('\n') + '\n';
+    return { json: shown, text };
   },
 
   async trends(client, options, componentId) {
