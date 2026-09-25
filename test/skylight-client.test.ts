@@ -1,16 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inspect } from 'node:util';
-import { SkylightClient } from '../src/skylight-client.js';
+import { SkylightClient } from '../src/skylight-client.ts';
+import { json, recordingFetch } from './helpers.ts';
 
 function fixture({ expire = false, components = 1, origin = 'https://data-v3.skylight.io' } = {}) {
-  const calls = [];
   let authentications = 0;
   let expired = false;
-  const json = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
-  const fetch = async (url, options) => {
-    const target = new URL(url);
-    calls.push({ target, ...options });
+  const { fetch, calls } = recordingFetch(options => {
+    const { target } = options;
     assert.equal(options.redirect, 'error');
     assert.equal(options.headers.accept, '*/*');
     if (target.pathname === '/mcp/authenticate') {
@@ -32,7 +30,7 @@ function fixture({ expire = false, components = 1, origin = 'https://data-v3.sky
         expired = true;
         return new Response('secret error body', { status: 401 });
       }
-      return json({ ...JSON.parse(options.body), endpoints: [{ name: 'A' }, { name: 'B' }] });
+      return json({ ...JSON.parse(options.body!), endpoints: [{ name: 'A' }, { name: 'B' }] });
     }
     if (target.pathname === '/deploys') {
       assert.equal(options.headers.authorization, `test-session-${authentications}`);
@@ -40,25 +38,26 @@ function fixture({ expire = false, components = 1, origin = 'https://data-v3.sky
       return json({ data: [{ id: '1' }, { id: '2' }], meta: {} });
     }
     throw new Error('Unexpected test request');
-  };
+  });
   return { client: new SkylightClient({ token: 'test-mcp-secret', fetch }), calls };
 }
 
 test('uses the three token types correctly and exposes no credentials in app metadata', async () => {
   const { client, calls } = fixture();
   const apps = await client.listApps();
-  assert.equal(apps[0].components.length, 1);
+  assert.equal(apps[0]?.components.length, 1);
   assert.doesNotMatch(JSON.stringify(apps) + inspect(client), /test-(mcp|session|client)|client_api_token/);
   const endpoints = await client.listEndpoints({ timestamp: 1201, duration: 600, limit: 1 });
   assert.deepEqual(endpoints, { timestamp: 1200, duration: 600, total: 2, endpoints: [{ name: 'A' }] });
-  const endpointCall = calls.find(call => call.method === 'POST');
-  assert.deepEqual(JSON.parse(endpointCall.body), { timestamp: 1200, duration: 600 });
+  const endpointCall = calls.find(call => call.method === 'POST')!;
+  assert.deepEqual(JSON.parse(endpointCall.body!), { timestamp: 1200, duration: 600 });
   assert.equal(endpointCall.target.pathname, '/apps/component-0/endpoint_highlights');
   const deploys = await client.listDeploys({ timestamp: 1201, duration: 600, limit: 1 });
   assert.equal(deploys.total, 2);
   assert.equal(deploys.data.length, 1);
-  assert.equal(calls.at(-1).target.searchParams.get('timestamp'), '1200');
-  assert.equal(calls.at(-1).target.searchParams.get('duration'), '600');
+  const deployQuery = calls.at(-1)!.target.searchParams;
+  assert.equal(deployQuery.get('timestamp'), '1200');
+  assert.equal(deployQuery.get('duration'), '600');
 });
 
 test('refreshes both session and component credentials after a 401', async () => {

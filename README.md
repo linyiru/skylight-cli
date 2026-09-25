@@ -52,6 +52,10 @@ const { endpoints } = await client.listEndpoints({ componentId: component.guid, 
 const { data } = await client.listDeploys({ componentId: component.guid, limit: 5 });
 ```
 
+Types ship with the package. Upstream limits are exported as constants from `src/spec.ts`, for example
+`ENDPOINT_WINDOW`, `DEPLOY_WINDOW`, `LIMIT`, and `ENDPOINT_SORT_KEYS`. The client's validators and the CLI help read
+the same constants.
+
 The client exchanges the MCP token for a session token and per-component API tokens, then retries once after an HTTP 401
 with a fresh set. Requests time out after 30 s and never follow redirects. The data-service URL returned by Skylight must
 be HTTPS on `skylight.io`. Errors carry a code and HTTP status only, never tokens or response bodies.
@@ -104,6 +108,21 @@ It also reads `www.skylight.io/source_locations?filter[id]=…` (unverified) to 
 
 Latency values look like milliseconds. The app-wide hourly p95 is about 40, and one endpoint's q-digest spans 5 to 993.
 This is not confirmed.
+
+## Development
+
+TypeScript source in `src/`, compiled to `dist/` with no runtime dependencies.
+
+```sh
+npm install
+npm run typecheck   # src and tests
+npm test            # runs the .ts tests directly via Node type stripping
+npm run build       # dist/ + .d.ts; also runs on prepublishOnly
+```
+
+Source files import each other with `.ts` extensions, and `tsc` rewrites them to `.js`
+(`rewriteRelativeImportExtensions`). `erasableSyntaxOnly` keeps the code runnable by Node's type stripping, so
+there are no enums or parameter properties.
 
 ## License
 

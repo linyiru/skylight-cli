@@ -2,15 +2,46 @@
   "name": "skylight-cli",
   "version": "0.1.0",
   "description": "Unofficial read-only CLI and API client for Skylight (skylight.io), using your Skylight MCP token",
-  "keywords": ["skylight", "apm", "rails", "performance", "cli"],
+  "keywords": [
+    "skylight",
+    "apm",
+    "rails",
+    "performance",
+    "cli"
+  ],
   "license": "MIT",
   "author": "linyiru",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/linyiru/skylight-cli.git"
+  },
+  "homepage": "https://github.com/linyiru/skylight-cli#readme",
+  "bugs": "https://github.com/linyiru/skylight-cli/issues",
   "type": "module",
-  "engines": { "node": ">=22" },
-  "bin": { "skylight-cli": "bin/skylight-cli.js" },
-  "exports": "./src/skylight-client.js",
-  "files": ["bin/", "src/"],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "skylight-cli": "bin/skylight-cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin/",
+    "dist/"
+  ],
   "scripts": {
-    "test": "node --test"
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc",
+    "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "7.0.2"
   }
 }
