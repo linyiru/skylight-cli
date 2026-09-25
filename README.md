@@ -154,7 +154,7 @@ there are no enums or parameter properties.
 
 ## Releasing
 
-Push a `v*` tag. `.github/workflows/publish.yml` builds, tests, and publishes through npm trusted publishing
+Move the `[Unreleased]` entries in `CHANGELOG.md` under the new version, then push a `v*` tag. `.github/workflows/publish.yml` builds, tests, and publishes through npm trusted publishing
 (OIDC), with provenance. No npm token is stored in GitHub.
 
 ```sh
