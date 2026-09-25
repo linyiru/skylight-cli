@@ -7,6 +7,8 @@ export type SkylightErrorCode =
   | 'INVALID_APPS_RESPONSE'
   | 'INVALID_ENDPOINTS_RESPONSE'
   | 'INVALID_DEPLOYS_RESPONSE'
+  | 'INVALID_TRENDS_RESPONSE'
+  | 'INVALID_SUMMARY_RESPONSE'
   | 'INVALID_DATA_URL'
   | 'MISSING_COMPONENT_TOKEN'
   | 'COMPONENT_SELECTION_REQUIRED'
@@ -15,7 +17,9 @@ export type SkylightErrorCode =
   | 'INVALID_TIMESTAMP'
   | 'INVALID_LIMIT'
   | 'INVALID_SEARCH'
-  | 'INVALID_SORT';
+  | 'INVALID_SORT'
+  | 'INVALID_STEP'
+  | 'INVALID_ENDPOINT';
 
 /** Carries a code and HTTP status only, never tokens or response bodies. */
 export class SkylightError extends Error {

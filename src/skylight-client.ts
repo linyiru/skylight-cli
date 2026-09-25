@@ -1,11 +1,12 @@
 import { SkylightError } from './errors.ts';
 import {
-  DEPLOY_WINDOW, ENDPOINT_WINDOW, LIMIT, assertLimit, isEndpointSortKey, timeWindow,
-  type EndpointSortKey, type WindowStart,
+  DEPLOY_WINDOW, ENDPOINT_WINDOW, LIMIT, TREND_WINDOW, assertLimit, defaultTrendStep, isEndpointSortKey, timeWindow,
+  trendRanges, type EndpointSortKey, type TrendStep, type WindowStart,
 } from './spec.ts';
 import type {
-  App, ClientApiToken, Component, DeployList, EndpointHighlight, EndpointList, McpToken, SessionToken,
-  WireApp, WireAppsResponse, WireAuthResponse, WireComponent, WireDeploysResponse, WireEndpointHighlightsResponse,
+  App, ClientApiToken, Component, DeployList, EndpointHighlight, EndpointList, EndpointSummary, McpToken,
+  SessionToken, TrendSeries, WireApp, WireAppsResponse, WireAuthResponse, WireComponent, WireDeploysResponse,
+  WireEndpointHighlightsResponse, WireTrendsResponse,
 } from './types.ts';
 
 const WEB_URL = 'https://www.skylight.io';
@@ -39,6 +40,24 @@ export interface ListEndpointsOptions extends WindowOptions {
   search?: string | undefined;
   /** Descending by the given metric; default keeps upstream order. */
   sortBy?: EndpointSortKey | undefined;
+}
+
+export interface LatencyTrendsOptions extends Omit<WindowOptions, 'limit'> {
+  /** Bucket size; defaults by window length (see `defaultTrendStep`). */
+  step?: TrendStep | undefined;
+}
+
+export interface EndpointDetailOptions extends Omit<WindowOptions, 'limit'> {
+  /** Canonical name exactly as listed, including any `<sk-segment>…</sk-segment>` suffix. */
+  endpoint: string;
+}
+
+const SERIES_KEYS = ['counts', 'latenciesP50', 'latenciesP90', 'latenciesP95', 'latenciesP98', 'latenciesP99',
+  'latenciesMax'] as const satisfies (keyof TrendSeries)[];
+
+function isSeries(value: unknown, count: number): value is TrendSeries {
+  const series = value as Partial<TrendSeries> | undefined;
+  return !!series && SERIES_KEYS.every(key => Array.isArray(series[key]) && series[key].length === count);
 }
 
 function dataUrl(value: unknown): string {
@@ -104,8 +123,9 @@ export class SkylightClient {
       });
     } catch { throw new SkylightError('NETWORK_ERROR'); }
     if (!response.ok) {
-      // Do not expose server error bodies or credentials via exception causes.
-      await response.body?.cancel().catch(() => {});
+      // Do not expose server error bodies or credentials via exception causes. Discard without awaiting:
+      // cancellation is best effort and must not delay the error.
+      response.body?.cancel().catch(() => {});
       throw new SkylightError('HTTP_ERROR', response.status);
     }
     try { return await response.json() as T; } catch { throw new SkylightError('INVALID_JSON'); }
@@ -163,6 +183,13 @@ export class SkylightClient {
     return selected;
   }
 
+  async #dataAccess(componentId: string | undefined): Promise<{ base: string; token: ClientApiToken }> {
+    const component = await this.#component(componentId);
+    const token = component.client_api_token?.token;
+    if (typeof token !== 'string' || !token) throw new SkylightError('MISSING_COMPONENT_TOKEN');
+    return { base: `${this.#dataUrl}/apps/${encodeURIComponent(component.guid)}`, token };
+  }
+
   async listApps({ refresh = false }: ListOptions = {}): Promise<App[]> {
     return this.#run(async () => (await this.#loadApps(refresh)).map(app => ({
       guid: app.guid, name: app.name,
@@ -182,12 +209,8 @@ export class SkylightClient {
     const matches = endpointMatcher(search);
     if (sortBy !== undefined && !isEndpointSortKey(sortBy)) throw new SkylightError('INVALID_SORT');
     return this.#run(async () => {
-      const component = await this.#component(componentId);
-      const token = component.client_api_token?.token;
-      if (typeof token !== 'string' || !token) throw new SkylightError('MISSING_COMPONENT_TOKEN');
-      const result = await this.#request<Partial<WireEndpointHighlightsResponse>>(
-        `${this.#dataUrl}/apps/${encodeURIComponent(component.guid)}/endpoint_highlights`, token, window,
-      );
+      const { base, token } = await this.#dataAccess(componentId);
+      const result = await this.#request<Partial<WireEndpointHighlightsResponse>>(`${base}/endpoint_highlights`, token, window);
       if (!Array.isArray(result?.endpoints)) throw new SkylightError('INVALID_ENDPOINTS_RESPONSE');
       let endpoints = result.endpoints.filter(matches);
       if (sortBy !== undefined) {
@@ -213,6 +236,46 @@ export class SkylightClient {
       const result = await this.#request<Partial<WireDeploysResponse>>(url.href, this.#session!);
       if (!Array.isArray(result?.data)) throw new SkylightError('INVALID_DEPLOYS_RESPONSE');
       return { total: result.data.length, data: result.data.slice(0, limit), meta: result.meta ?? {} };
+    });
+  }
+
+  /** App-wide latency series. Windows over 7 days are fetched as parallel requests and concatenated. */
+  async getLatencyTrends({
+    componentId, timestamp = 'recent', duration = TREND_WINDOW.default, step,
+  }: LatencyTrendsOptions = {}): Promise<TrendSeries> {
+    const bucket = step ?? defaultTrendStep(duration);
+    const ranges = trendRanges(timestamp, duration, bucket);
+    return this.#run(async () => {
+      const { base, token } = await this.#dataAccess(componentId);
+      const parts = await Promise.all(ranges.map(async range => {
+        const result = await this.#request<Partial<WireTrendsResponse>>(`${base}/application_highlights`, token, { ranges: [range] });
+        const series = result?.ranges?.[0];
+        if (!isSeries(series, range.count)) throw new SkylightError('INVALID_TRENDS_RESPONSE');
+        return series;
+      }));
+      const merged: TrendSeries = {
+        timestamp: ranges[0]!.timestamp, duration: ranges.reduce((sum, range) => sum + range.step * range.count, 0), step: bucket,
+        counts: [], latenciesP50: [], latenciesP90: [], latenciesP95: [], latenciesP98: [], latenciesP99: [], latenciesMax: [],
+      };
+      for (const part of parts) for (const key of SERIES_KEYS) (merged[key] as (number | null)[]).push(...part[key]);
+      return merged;
+    });
+  }
+
+  /** Latency digest, inspections (e.g. N+1 queries), and the raw trace for one endpoint. */
+  async getEndpointDetail({
+    componentId, endpoint, timestamp = 'recent', duration = ENDPOINT_WINDOW.default,
+  }: EndpointDetailOptions): Promise<EndpointSummary> {
+    if (typeof endpoint !== 'string' || !endpoint) throw new SkylightError('INVALID_ENDPOINT');
+    const window = timeWindow(timestamp, duration, ENDPOINT_WINDOW);
+    return this.#run(async () => {
+      const { base, token } = await this.#dataAccess(componentId);
+      const result = await this.#request<Partial<EndpointSummary>>(
+        `${base}/endpoints/${encodeURIComponent(endpoint)}/summary`, token, window);
+      if (typeof result?.endpoint?.latencies?.count !== 'number' || !Array.isArray(result.inspections?.results)) {
+        throw new SkylightError('INVALID_SUMMARY_RESPONSE');
+      }
+      return result as EndpointSummary;
     });
   }
 }

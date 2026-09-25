@@ -8,9 +8,17 @@ export type McpToken = Brand<string, 'McpToken'>;
 export type SessionToken = Brand<string, 'SessionToken'>;
 export type ClientApiToken = Brand<string, 'ClientApiToken'>;
 
-/** GET www/mcp/authenticate */
+/** GET www/mcp/authenticate. Each call issues a new session token. */
 export interface WireAuthResponse {
-  session: { token: SessionToken; refresh_ttl?: number };
+  session: {
+    token: SessionToken;
+    /** Seconds the session stays valid (10800 observed) and when that ends (unix seconds). */
+    expiry_ttl?: number;
+    expiry_ts?: number;
+    /** Seconds until a refresh is due (4500 observed) and when (unix seconds). */
+    refresh_ttl?: number;
+    refresh_ts?: number;
+  };
   data_url: string;
 }
 
@@ -29,7 +37,7 @@ export interface WireApp {
   components: WireComponent[];
 }
 
-/** GET www/mcp/apps */
+/** GET www/mcp/apps. Each call issues new client API tokens. */
 export interface WireAppsResponse {
   data_url?: string;
   apps: WireApp[];
@@ -100,4 +108,52 @@ export interface DeployList {
   total: number;
   data: Deploy[];
   meta: Record<string, unknown>;
+}
+
+/** One bucketed series; every array has `duration / step` entries, oldest first. */
+export interface TrendSeries {
+  timestamp: number;
+  duration: number;
+  step: number;
+  counts: number[];
+  latenciesP50: (number | null)[];
+  latenciesP90: (number | null)[];
+  latenciesP95: (number | null)[];
+  latenciesP98: (number | null)[];
+  latenciesP99: (number | null)[];
+  latenciesMax: (number | null)[];
+}
+
+/** POST {data_url}/apps/{component}/application_highlights, body `{ranges: TrendRange[]}`. */
+export interface WireTrendsResponse {
+  ranges: TrendSeries[];
+}
+
+/**
+ * Quantile digest. Each node counts samples in `[lower, lower + 2 ** level)`; node counts sum to `count`.
+ */
+export interface QDigest {
+  count: number;
+  min: number;
+  max: number;
+  nodes: [lower: number, level: number, count: number][];
+}
+
+export interface Inspection {
+  /** e.g. `nPlusOneQuery`. */
+  type: string;
+  severity: number;
+  /** `[category, title, detail]`, e.g. `['db.sql.query', 'SELECT FROM users', '<sql>']`. */
+  event: [category: string, title: string | null, detail: string | null];
+  durations: QDigest;
+  /** Repetitions per request. */
+  repetitions: QDigest;
+}
+
+/** POST {data_url}/apps/{component}/endpoints/{encodeURIComponent(name)}/summary, body `{timestamp, duration}`. */
+export interface EndpointSummary {
+  endpoint: { name: string; timestamp: number; duration: number; count: number; latencies: QDigest };
+  inspections: { timestamp: number; duration: number; results: Inspection[] };
+  /** Positional trace tuples; the format is not decoded yet and may change. */
+  trace: { count: number; timestamp: number; duration: number; nodes: unknown[]; targets: unknown[] };
 }

@@ -50,3 +50,47 @@ export function assertLimit(value: number): number {
   if (!Number.isInteger(value) || value < LIMIT.min || value > LIMIT.max) throw new SkylightError('INVALID_LIMIT');
   return value;
 }
+
+/** application_highlights accepts only these bucket sizes (seconds); others return 422 InvalidRangeStep. */
+export const TREND_STEPS = [60, 600, 3_600] as const;
+export type TrendStep = (typeof TREND_STEPS)[number];
+
+/** Upstream rejects a request whose ranges sum (step × count) to more than 7 days. */
+export const TREND_MAX_SECONDS_PER_REQUEST = 604_800;
+
+/** Client-side cap matching the official MCP: 45 days, at most 7 requests at the hourly step. */
+export const TREND_WINDOW = { min: 60, max: 3_888_000, default: 604_800 } as const satisfies WindowSpec;
+
+export interface TrendRange {
+  timestamp: number;
+  step: TrendStep;
+  count: number;
+}
+
+export function isTrendStep(value: unknown): value is TrendStep {
+  return (TREND_STEPS as readonly unknown[]).includes(value);
+}
+
+/** Keeps tables around 100-170 rows: 1-minute buckets up to 2h, 10-minute up to 24h, hourly beyond. */
+export function defaultTrendStep(duration: number): TrendStep {
+  return duration <= 7_200 ? 60 : duration <= 86_400 ? 600 : 3_600;
+}
+
+/**
+ * Splits a window into request-sized ranges. Explicit starts align down to the step; 'recent' ends at the
+ * next step boundary, so the in-progress bucket is included.
+ */
+export function trendRanges(timestamp: WindowStart, duration: number, step: TrendStep, now = Date.now()): TrendRange[] {
+  if (!isTrendStep(step)) throw new SkylightError('INVALID_STEP');
+  if (!Number.isInteger(duration) || duration < TREND_WINDOW.min || duration > TREND_WINDOW.max || duration % step) {
+    throw new SkylightError('INVALID_DURATION');
+  }
+  const start = timestamp === 'recent' ? Math.ceil(now / 1000 / step) * step - duration : timestamp;
+  if (!Number.isSafeInteger(start) || start < 0) throw new SkylightError('INVALID_TIMESTAMP');
+  const perRequest = TREND_MAX_SECONDS_PER_REQUEST / step;
+  const ranges: TrendRange[] = [];
+  for (let offset = 0, total = duration / step; offset < total; offset += perRequest) {
+    ranges.push({ timestamp: Math.floor(start / step) * step + offset * step, step, count: Math.min(perRequest, total - offset) });
+  }
+  return ranges;
+}
