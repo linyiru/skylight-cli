@@ -7,14 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
 ### Added
 
+- `trace <name>` command: the endpoint's aggregated trace as a tree, with each event's start, duration, self time,
+  allocations, and share of requests. `--latency a-b` limits it to requests in that response-time range,
+  `--min-ms` hides short events, and `--full` disables condensing.
+- `buildTraceTree()` and `condenseTraceTree()` in the library.
 - Types for the endpoint summary trace (`TraceNode`, `TraceSpan`, `TraceTarget`, `TraceAnnotation`). The format
   was decoded by comparing API responses with the Skylight UI.
 - This changelog.
 
 ### Changed
 
+- `endpoint` and `trace` accept a name without its `<sk-segment>` variant and use the non-`error` variant.
 - Latencies are documented as milliseconds, confirmed against the Skylight UI.
 
 ## [0.2.0] - 2026-09-25
@@ -47,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `endpoints --search` (Rails-style `users#index`) and `--sort count|p50|p95|p99`.
 - `SkylightClient`, a read-only Node.js client that handles the MCP token → session token → client API token chain.
 
-[unreleased]: https://github.com/linyiru/skylight-cli/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/linyiru/skylight-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/linyiru/skylight-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/linyiru/skylight-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/linyiru/skylight-cli/releases/tag/v0.1.0
