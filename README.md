@@ -46,7 +46,7 @@ Exit codes: `0` success, `1` API or network failure, `2` usage error.
 `endpoint <name>` accepts a search term when it matches exactly one endpoint; otherwise it lists candidates.
 Its p50/p95/p99 are Skylight's own figures; min and max come from the endpoint's latency digest.
 
-Latency units are not documented upstream; values are shown as returned (they look like milliseconds).
+Latencies are in milliseconds.
 
 ## Library
 
@@ -87,7 +87,15 @@ or apps issues fresh ones.
 - Trends: `step` must be 60, 600, or 3600, and `step × count` summed over all ranges must be at most 7 days.
   Longer windows take several requests.
 - Summary: the name keeps its `<sk-segment>…</sk-segment>` suffix and must be percent-encoded. An unknown name
-  returns 200 with `count: 0`, not 404. `trace.nodes` are positional tuples whose meaning is not decoded yet.
+  returns 200 with `count: 0`, not 404.
+- Trace, decoded 2026-09-25 by comparing responses with the Skylight UI (types: `TraceNode`, `TraceSpan`):
+  - `trace.targets` are 10 ms latency buckets that samples were drawn from.
+  - Each node is `[parent index, category, title, description, spans]`; the description is the SQL for queries.
+  - Each span holds one node's timing within one target: start and duration in ms, relative to the parent.
+  - A span also carries allocations and a `[deploy ref, source location id]` pair. The UI shows the pair as the
+    deploy's git sha and a `file.rb:line`.
+  - Three span fields are still unknown.
+- Latencies are in milliseconds, confirmed against the UI (typical response = p50, problem response = p95).
 - Q-digest nodes are `[lower, level, count]`, counting samples in `[lower, lower + 2^level)`.
 - Upstream returns full lists; `limit` is applied client-side.
 

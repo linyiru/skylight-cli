@@ -150,10 +150,40 @@ export interface Inspection {
   repetitions: QDigest;
 }
 
+/** A latency bucket `[start, start + length)` in ms from which trace samples were drawn. */
+export interface TraceTarget {
+  start: number;
+  length: number;
+  requests: unknown[];
+}
+
+/** `[1, samples, offset from the parent's allocations, allocations]` or `[2, [[deploy ref, source location id]]]`. */
+export type TraceAnnotation =
+  | [kind: 1, samples: number, allocationOffset: number, allocations: number]
+  | [kind: 2, sources: [deployRef: string, sourceLocationId: string | null][]];
+
+/**
+ * One node's timing within one target bucket; averages when `samples` > 1. Offsets are relative to the parent
+ * node. Decoded 2026-09-25 by comparing API responses with the Skylight UI; the unnamed fields are still unknown.
+ */
+export type TraceSpan = [
+  target: number,
+  samples: number,
+  unknown2: number,
+  unknown3: number,
+  startMs: number,
+  durationMs: number,
+  /** Non-zero only when samples > 1. */
+  unknown6: number,
+  annotations: TraceAnnotation[],
+];
+
+/** `[parent index or null for the root, category, title, description (e.g. SQL), spans]`. */
+export type TraceNode = [parent: number | null, category: string, title: string | null, description: string | null, spans: TraceSpan[]];
+
 /** POST {data_url}/apps/{component}/endpoints/{encodeURIComponent(name)}/summary, body `{timestamp, duration}`. */
 export interface EndpointSummary {
   endpoint: { name: string; timestamp: number; duration: number; count: number; latencies: QDigest };
   inspections: { timestamp: number; duration: number; results: Inspection[] };
-  /** Positional trace tuples; the format is not decoded yet and may change. */
-  trace: { count: number; timestamp: number; duration: number; nodes: unknown[]; targets: unknown[] };
+  trace: { count: number; timestamp: number; duration: number; nodes: TraceNode[]; targets: TraceTarget[] };
 }
