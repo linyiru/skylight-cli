@@ -1,0 +1,25 @@
+{
+  "scenario": "trends.over-7-days",
+  "description": "step × count sums to more than 7 days",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/application_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "ranges": [
+        {
+          "timestamp": 1789765200,
+          "step": 3600,
+          "count": 169
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 422,
+    "contentType": null,
+    "body": null
+  }
+}

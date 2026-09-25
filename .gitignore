@@ -6,3 +6,5 @@ coverage/
 .tools/
 captures/
 dist/
+# HMAC key for fixture pseudonyms; keep local.
+.fixture-key

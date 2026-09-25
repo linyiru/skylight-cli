@@ -1,0 +1,17 @@
+{
+  "scenario": "deploys.invalid-token",
+  "description": "Unknown session token",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/deploys?timestamp=1790353500&duration=21600&app_component_id=fx4411e8845d",
+    "auth": "invalid",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  }
+}

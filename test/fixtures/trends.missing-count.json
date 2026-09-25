@@ -1,0 +1,24 @@
+{
+  "scenario": "trends.missing-count",
+  "description": "Range without count",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/application_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "ranges": [
+        {
+          "timestamp": 1790370000,
+          "step": 3600
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 422,
+    "contentType": "text/plain; charset=utf-8",
+    "body": "Failed to deserialize the JSON body into the target type: ranges[0]: missing field `count` at line 1 column 47"
+  }
+}

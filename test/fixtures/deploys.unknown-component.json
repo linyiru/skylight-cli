@@ -1,0 +1,17 @@
+{
+  "scenario": "deploys.unknown-component",
+  "description": "Component id that does not exist",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/deploys?timestamp=1790353500&duration=21600&app_component_id=fx836a3f2531",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "contentType": "text/html; charset=utf-8",
+    "body": "<!DOCTYPE html><!-- Skylight HTML error page (23379 bytes) omitted from fixture -->"
+  }
+}

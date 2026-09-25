@@ -1,0 +1,23 @@
+{
+  "scenario": "auth.invalid-token",
+  "description": "Unknown MCP token",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/mcp/authenticate",
+    "auth": "invalid",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "contentType": "application/json; charset=utf-8",
+    "body": {
+      "error": {
+        "status": 401,
+        "reason": "unauthorized",
+        "message": "Invalid or inactive MCP token."
+      }
+    }
+  }
+}

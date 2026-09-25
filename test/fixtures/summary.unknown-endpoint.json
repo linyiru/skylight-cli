@@ -1,0 +1,45 @@
+{
+  "scenario": "summary.unknown-endpoint",
+  "description": "Endpoint name that does not exist",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/endpoints/FixtureProbeController%23missing/summary",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "timestamp": 1790353500,
+      "duration": 21600
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "trace": {
+        "count": 0,
+        "duration": 21600,
+        "nodes": [],
+        "targets": [],
+        "timestamp": 1790353500
+      },
+      "endpoint": {
+        "name": "FixtureProbeController#missing",
+        "timestamp": 1790353500,
+        "duration": 21600,
+        "count": 0,
+        "latencies": {
+          "count": 0,
+          "max": 0,
+          "min": 0,
+          "nodes": []
+        }
+      },
+      "inspections": {
+        "duration": 21600,
+        "results": [],
+        "timestamp": 1790353500
+      }
+    }
+  }
+}

@@ -23,6 +23,9 @@ skylight-cli components                          # guid, environment, name
 skylight-cli endpoints --sort p95 -n 10          # slowest endpoints, last 6h
 skylight-cli endpoints -s users#index --since 24h
 skylight-cli endpoints -c staging/web --at 1790000000 --since 1h
+skylight-cli endpoint users#show                 # latency + N+1 queries for one endpoint
+skylight-cli trends --since 24h                  # app-wide count and p50/p95/p99, 10-minute buckets
+skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel requests
 skylight-cli deploys -n 5                        # most recent first
 skylight-cli endpoints --json | jq '.endpoints[0]'
 ```
@@ -30,16 +33,20 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 | Option | Meaning |
 | --- | --- |
 | `-c, --component` | Component guid, `environment/name`, or unique name. Defaults to `$SKYLIGHT_COMPONENT_ID`, or the only component. |
-| `--since` | Window length (`90s`, `30m`, `6h`, `45d`). Endpoints: default 6h, max 24h. Deploys: default 45d, max 180d. |
+| `--since` | Window length (`90s`, `30m`, `6h`, `45d`). Endpoints/endpoint: default 6h, max 24h. Trends: default 7d, max 45d. Deploys: default 45d, max 180d. |
 | `--at` | Window start in unix seconds, rounded down to the minute. Default: now minus `--since`. |
 | `-n, --limit` | Rows to show, 1–500 (default 20). Applied after search and sort. |
 | `-s, --search` | Endpoint name filter; `users#index` also matches `UsersController#index` and `Admin::UsersController#index`. |
 | `--sort` | `count`, `p50`, `p95`, or `p99` (descending). Default: Skylight's order. |
+| `--step` | Trends bucket: `60`, `600`, or `3600` seconds. Default: 60 up to 2h, 600 up to 24h, else 3600. |
 | `--json` | Machine-readable output. |
 
 Exit codes: `0` success, `1` API or network failure, `2` usage error.
 
-Latency units are not documented upstream; values are shown as returned.
+`endpoint <name>` accepts a search term when it matches exactly one endpoint; otherwise it lists candidates.
+Its p50/p95/p99 are Skylight's own figures; min and max come from the endpoint's latency digest.
+
+Latency units are not documented upstream; values are shown as returned (they look like milliseconds).
 
 ## Library
 
@@ -50,6 +57,8 @@ const client = new SkylightClient(); // reads SKYLIGHT_MCP_TOKEN
 const [component] = await client.listComponents();
 const { endpoints } = await client.listEndpoints({ componentId: component.guid, sortBy: 'p95', limit: 10 });
 const { data } = await client.listDeploys({ componentId: component.guid, limit: 5 });
+const trends = await client.getLatencyTrends({ componentId: component.guid, duration: 86_400 });
+const detail = await client.getEndpointDetail({ componentId: component.guid, endpoint: endpoints[0]!.name });
 ```
 
 Types ship with the package. Upstream limits are exported as constants from `src/spec.ts`, for example
@@ -62,52 +71,38 @@ be HTTPS on `skylight.io`. Errors carry a code and HTTP status only, never token
 
 ## How the API works
 
-Observed on 2026-09-25 against `skylight-mcp 0.1.0`. The `Authorization` header carries the raw token, with **no**
-`Bearer` prefix. There are three distinct tokens:
+Observed against the live API and `skylight-mcp 0.1.0`, verified 2026-09-25. The `Authorization` header carries
+the raw token, with **no** `Bearer` prefix. The three tokens are not interchangeable, and each call to authenticate
+or apps issues fresh ones.
 
 | Method | Path | Token | Purpose |
 | --- | --- | --- | --- |
-| GET | `www.skylight.io/mcp/authenticate` | MCP token | session token, `data_url` |
+| GET | `www.skylight.io/mcp/authenticate` | MCP | session token (valid 3h), `data_url` |
 | GET | `www.skylight.io/mcp/apps` | session | apps, components, per-component `client_api_token` |
-| POST | `{data_url}/apps/{component}/endpoint_highlights` | client API token | endpoint metrics; body `{timestamp, duration}` |
-| GET | `www.skylight.io/deploys?timestamp&duration&app_component_id` | session | deploys (JSON:API `data[].attributes`) |
+| GET | `www.skylight.io/deploys?timestamp&duration&app_component_id` | session | deploys, `application/vnd.api+json` |
+| POST | `{data_url}/apps/{component}/endpoint_highlights` | client | endpoint metrics; body `{timestamp, duration}` |
+| POST | `{data_url}/apps/{component}/endpoints/{encodeURIComponent(name)}/summary` | client | latency q-digest, inspections, trace |
+| POST | `{data_url}/apps/{component}/application_highlights` | client | trends; body `{ranges: [{timestamp, step, count}]}` |
 
-`/deploys` returns 406 for `Accept: application/json`, so the client sends `Accept: */*` like the official server.
-Upstream returns the full list; `limit` is applied client-side.
+- Trends: `step` must be 60, 600, or 3600, and `step × count` summed over all ranges must be at most 7 days.
+  Longer windows take several requests.
+- Summary: the name keeps its `<sk-segment>…</sk-segment>` suffix and must be percent-encoded. An unknown name
+  returns 200 with `count: 0`, not 404. `trace.nodes` are positional tuples whose meaning is not decoded yet.
+- Q-digest nodes are `[lower, level, count]`, counting samples in `[lower, lower + 2^level)`.
+- Upstream returns full lists; `limit` is applied client-side.
 
-### Verified 2026-09-25, not yet in the CLI
+Error responses, as recorded in [`test/fixtures`](test/fixtures):
 
-**Latency trends**: `POST {data_url}/apps/{component}/application_highlights`, client API token.
-
-```json
-{"ranges": [{"timestamp": 1789765200, "step": 3600, "count": 168}]}
-```
-
-- `step` must be `60`, `600`, or `3600`. Other values return 422 `InvalidRangeStep`.
-- The sum of `step × count` over all ranges must be at most 604800 (7 days); otherwise 422 with an empty body.
-  A 45-day view therefore needs several requests. Zero ranges and duplicate ranges are accepted.
-- Unaligned timestamps are echoed back unchanged. Windows ending 60 days ago still return data.
-- Response `ranges[]` carries `timestamp`, `duration`, `step`, and per-step arrays `counts`,
-  `latenciesP50/P90/P95/P98/P99/Max` of length `count`.
-- 422 errors have a `text/plain` serde message naming the missing or invalid field.
-
-**Endpoint detail**: `POST {data_url}/apps/{component}/endpoints/{encodeURIComponent(name)}/summary`, body
-`{timestamp, duration}`, client API token. The name keeps its `<sk-segment>…</sk-segment>` suffix, percent-encoded.
-The response contains:
-
-- `endpoint`: `name`, `timestamp`, `duration`, `count`, and `latencies` as a q-digest (`count`, `min`, `max`,
-  `nodes[]` of 3-number tuples).
-- `trace`: `count`, `duration`, `timestamp`, `targets[]` (`start`, `length`, `requests[]`), and `nodes[]` of
-  positional tuples `[number|null, string, string|null, string|null, spans[]]`. Each span is 7 numbers followed by
-  `[[4 numbers], [number, [[key, value], …]]]`. Field meanings are not yet decoded.
-- `inspections`: `results[]` with `type` (e.g. `nPlusOneQuery`), `severity`, `event` (`[category, title, sql]`),
-  and q-digests `durations` and `repetitions`.
-
-The official MCP's `latency_range` (full/fastest/slowest) is not sent upstream; it filters trace spans locally.
-It also reads `www.skylight.io/source_locations?filter[id]=…` (unverified) to map trace nodes to source code.
-
-Latency values look like milliseconds. The app-wide hourly p95 is about 40, and one endpoint's q-digest spans 5 to 993.
-This is not confirmed.
+| Case | Status | Body |
+| --- | --- | --- |
+| Invalid, missing, or `Bearer`-prefixed MCP token | 401 | JSON `{"error": {"reason": "unauthorized", "message": "Invalid or inactive MCP token."}}` |
+| Invalid or wrong-kind token on `www` (apps, deploys) | 401 | empty `text/html` |
+| Invalid or wrong-kind token on the data service | 401 | empty |
+| Unknown component | 404 | empty (data service) or an HTML error page (deploys) |
+| `/deploys` with `Accept: application/json` | 406 | empty; the client sends `*/*` |
+| Malformed body, bad trends `step`, missing fields | 422 | `text/plain` serde message, e.g. `ranges[0].step: InvalidRangeStep` |
+| Endpoint window over 24h, trends over 7 days | 422 | empty |
+| Summary name not percent-encoded | 404 | empty |
 
 ## Development
 
@@ -116,9 +111,34 @@ TypeScript source in `src/`, compiled to `dist/` with no runtime dependencies.
 ```sh
 npm install
 npm run typecheck   # src and tests
-npm test            # runs the .ts tests directly via Node type stripping
+npm test            # unit + recorded-fixture tests, offline
 npm run build       # dist/ + .d.ts; also runs on prepublishOnly
 ```
+
+### Tests against real responses
+
+Every upstream response in the tests is real. `test/support/scenarios.ts` lists the scenarios: each endpoint's
+success case plus its error cases (bad tokens, wrong token kind, unknown ids, malformed bodies, limits).
+
+- `npm run fixtures:record` runs every scenario against the live API and writes `test/fixtures/*.json`. It needs
+  `SKYLIGHT_MCP_TOKEN`.
+- `test/support/sanitize.ts` de-identifies the recordings before they are written. It is default-deny: every string is
+  replaced with a keyed HMAC pseudonym unless it is a known-safe field, such as a status, an upstream error message,
+  an event category, or a timestamp. The key lives in the gitignored `.fixture-key`.
+  - Tokens become `test-mcp-token`, `test-session-token`, and `test-client-token`.
+  - Every identifier in an endpoint name is renamed, including the action. Only `::`, `#`, `<sk-segment>`, and the
+    format remain.
+  - SQL is dropped and HTML error pages are reduced to a marker.
+  - Request counts and latencies are scaled by secret factors derived from the key, so fixtures reveal neither
+    traffic volume nor which endpoints are slow. Q-digests are rescaled into valid digests.
+  - Numbers inside the undecoded trace tuples are zeroed.
+  - The recorder aborts without writing if any original value survives.
+- `test/fixtures.test.ts` replays the fixtures through [MSW](https://mswjs.io), so the client's real `fetch` path
+  sees real statuses, content types, and bodies. A replayed request carrying the wrong token kind fails the test.
+- `npm run test:live` is an opt-in contract check. It re-runs every scenario live and compares status, media type,
+  error text, and JSON shape with the fixtures, then drives the client end to end. When it fails, Skylight has
+  changed: re-record and review the fixture diff.
+
 
 Source files import each other with `.ts` extensions, and `tsc` rewrites them to `.js`
 (`rewriteRelativeImportExtensions`). `erasableSyntaxOnly` keeps the code runnable by Node's type stripping, so

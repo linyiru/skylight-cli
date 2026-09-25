@@ -1,0 +1,20 @@
+{
+  "scenario": "endpoint-highlights.invalid-token",
+  "description": "Unknown client API token",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/endpoint_highlights",
+    "auth": "invalid",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "timestamp": 1790353500,
+      "duration": 21600
+    }
+  },
+  "response": {
+    "status": 401,
+    "contentType": null,
+    "body": null
+  }
+}

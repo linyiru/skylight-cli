@@ -1,0 +1,17 @@
+{
+  "scenario": "apps.invalid-token",
+  "description": "Unknown session token",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/mcp/apps",
+    "auth": "invalid",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  }
+}

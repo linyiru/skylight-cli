@@ -1,0 +1,20 @@
+{
+  "scenario": "endpoint-highlights.string-timestamp",
+  "description": "Body field of the wrong type",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/endpoint_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "timestamp": "recent",
+      "duration": 21600
+    }
+  },
+  "response": {
+    "status": 422,
+    "contentType": "text/plain; charset=utf-8",
+    "body": "Failed to deserialize the JSON body into the target type: timestamp: invalid type: string \"recent\", expected u64 at line 1 column 21"
+  }
+}

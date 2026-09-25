@@ -1,0 +1,25 @@
+{
+  "scenario": "trends.invalid-step",
+  "description": "step not in 60/600/3600",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/application_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "ranges": [
+        {
+          "timestamp": 1790287200,
+          "step": 86400,
+          "count": 1
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 422,
+    "contentType": "text/plain; charset=utf-8",
+    "body": "Failed to deserialize the JSON body into the target type: ranges[0].step: InvalidRangeStep at line 1 column 47"
+  }
+}

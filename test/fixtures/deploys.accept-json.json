@@ -1,0 +1,17 @@
+{
+  "scenario": "deploys.accept-json",
+  "description": "Accept: application/json instead of */*",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/deploys?timestamp=1790353500&duration=21600&app_component_id=fx4411e8845d",
+    "auth": "session",
+    "bearer": false,
+    "accept": "application/json",
+    "body": null
+  },
+  "response": {
+    "status": 406,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  }
+}

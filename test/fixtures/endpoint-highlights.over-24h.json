@@ -1,0 +1,20 @@
+{
+  "scenario": "endpoint-highlights.over-24h",
+  "description": "Duration above the documented 24h maximum",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/endpoint_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "timestamp": 1790267100,
+      "duration": 108000
+    }
+  },
+  "response": {
+    "status": 422,
+    "contentType": null,
+    "body": null
+  }
+}

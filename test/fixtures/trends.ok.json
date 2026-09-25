@@ -1,0 +1,68 @@
+{
+  "scenario": "trends.ok",
+  "description": "Three hourly buckets",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/application_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "ranges": [
+        {
+          "timestamp": 1790362800,
+          "step": 3600,
+          "count": 3
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ranges": [
+        {
+          "timestamp": 1790362800,
+          "duration": 10800,
+          "step": 3600,
+          "counts": [
+            14233,
+            14193,
+            14165
+          ],
+          "latenciesP50": [
+            7,
+            7,
+            6
+          ],
+          "latenciesP90": [
+            19,
+            19,
+            18
+          ],
+          "latenciesP95": [
+            23,
+            25,
+            22
+          ],
+          "latenciesP98": [
+            31,
+            37,
+            28
+          ],
+          "latenciesP99": [
+            40,
+            50,
+            34
+          ],
+          "latenciesMax": [
+            1628,
+            4083,
+            3718
+          ]
+        }
+      ]
+    }
+  }
+}

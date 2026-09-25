@@ -1,0 +1,146 @@
+{
+  "scenario": "deploys.ok",
+  "description": "Deploys for the last 45 days",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/deploys?timestamp=1786487100&duration=3888000&app_component_id=fx4411e8845d",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/vnd.api+json; charset=utf-8",
+    "body": {
+      "data": [
+        {
+          "id": "fxe4f8dcc870",
+          "type": "deploys",
+          "attributes": {
+            "start_at": "2026-09-25T13:11:41+00:00",
+            "end_at": "2026-09-26T00:45:24+00:00",
+            "deploy_id": "87a55581c638bbcdbe79322ac1fe1cf9b0929c80",
+            "git_sha": "87a55581c638bbcdbe79322ac1fe1cf9b0929c80",
+            "description": "description-35b9ebef"
+          },
+          "relationships": {
+            "app": {
+              "data": {
+                "type": "apps",
+                "id": "fx455a46cba8"
+              }
+            },
+            "app_component": {
+              "data": {
+                "type": "app_components",
+                "id": "fx4411e8845d"
+              }
+            }
+          }
+        },
+        {
+          "id": "fxfb9178e782",
+          "type": "deploys",
+          "attributes": {
+            "start_at": "2026-09-25T04:13:29+00:00",
+            "end_at": "2026-09-25T14:49:35+00:00",
+            "deploy_id": "d5b12dabea16bcbc092b499a6ab7dc0a084d2e95",
+            "git_sha": "d5b12dabea16bcbc092b499a6ab7dc0a084d2e95",
+            "description": "description-35b9ebef"
+          },
+          "relationships": {
+            "app": {
+              "data": {
+                "type": "apps",
+                "id": "fx455a46cba8"
+              }
+            },
+            "app_component": {
+              "data": {
+                "type": "app_components",
+                "id": "fx4411e8845d"
+              }
+            }
+          }
+        },
+        {
+          "id": "fx5e3174b53d",
+          "type": "deploys",
+          "attributes": {
+            "start_at": "2026-09-25T03:53:47+00:00",
+            "end_at": "2026-09-25T06:53:47+00:00",
+            "deploy_id": "84d5204c8112446c994f9a7b910a72c3622f32fa",
+            "git_sha": "84d5204c8112446c994f9a7b910a72c3622f32fa",
+            "description": "description-35b9ebef"
+          },
+          "relationships": {
+            "app": {
+              "data": {
+                "type": "apps",
+                "id": "fx455a46cba8"
+              }
+            },
+            "app_component": {
+              "data": {
+                "type": "app_components",
+                "id": "fx4411e8845d"
+              }
+            }
+          }
+        },
+        {
+          "id": "fx66f387414b",
+          "type": "deploys",
+          "attributes": {
+            "start_at": "2026-09-25T03:03:19+00:00",
+            "end_at": "2026-09-25T06:03:19+00:00",
+            "deploy_id": "38dc3b4270b679d0aa66b32226c9bc87dec9fe10",
+            "git_sha": "38dc3b4270b679d0aa66b32226c9bc87dec9fe10",
+            "description": "description-35b9ebef"
+          },
+          "relationships": {
+            "app": {
+              "data": {
+                "type": "apps",
+                "id": "fx455a46cba8"
+              }
+            },
+            "app_component": {
+              "data": {
+                "type": "app_components",
+                "id": "fx4411e8845d"
+              }
+            }
+          }
+        },
+        {
+          "id": "fx6231788d82",
+          "type": "deploys",
+          "attributes": {
+            "start_at": "2026-09-25T01:10:22+00:00",
+            "end_at": "2026-09-25T05:30:23+00:00",
+            "deploy_id": "9d35d01b9cae784ce0035ceab8b2d6e32d8e952f",
+            "git_sha": "9d35d01b9cae784ce0035ceab8b2d6e32d8e952f",
+            "description": "description-35b9ebef"
+          },
+          "relationships": {
+            "app": {
+              "data": {
+                "type": "apps",
+                "id": "fx455a46cba8"
+              }
+            },
+            "app_component": {
+              "data": {
+                "type": "app_components",
+                "id": "fx4411e8845d"
+              }
+            }
+          }
+        }
+      ],
+      "meta": {}
+    }
+  }
+}

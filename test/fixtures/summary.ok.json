@@ -1,0 +1,248 @@
+{
+  "scenario": "summary.ok",
+  "description": "Busiest endpoint: latency digest, inspections, trace",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/endpoints/Res00920%3A%3ARese9fd6/summary",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "timestamp": 1790353500,
+      "duration": 21600
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "trace": {
+        "count": 0,
+        "duration": 21600,
+        "nodes": [
+          [
+            null,
+            "app.rack.request",
+            null,
+            null,
+            [
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                [
+                  [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    [
+                      [
+                        "fxe4f8dcc870",
+                        "str-40214a0c"
+                      ]
+                    ]
+                  ]
+                ]
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                [
+                  [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    [
+                      [
+                        "fxe4f8dcc870",
+                        "str-40214a0c"
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            0,
+            "rack.middleware",
+            "str-9e592cbe",
+            null,
+            [
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                [
+                  [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    [
+                      [
+                        "fxe4f8dcc870",
+                        "str-90b941df"
+                      ]
+                    ]
+                  ]
+                ]
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                [
+                  [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    [
+                      [
+                        "fxe4f8dcc870",
+                        "str-90b941df"
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            0,
+            "noise.gc",
+            null,
+            null,
+            [
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                [
+                  [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    [
+                      [
+                        "fxe4f8dcc870",
+                        "str-40214a0c"
+                      ]
+                    ]
+                  ]
+                ]
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                [
+                  [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    [
+                      [
+                        "fxe4f8dcc870",
+                        "str-40214a0c"
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "targets": [
+          {
+            "length": 0,
+            "requests": [],
+            "start": 0
+          },
+          {
+            "length": 0,
+            "requests": [],
+            "start": 0
+          }
+        ],
+        "timestamp": 1790353500
+      },
+      "endpoint": {
+        "name": "Res00920::Rese9fd6",
+        "timestamp": 1790353500,
+        "duration": 21600,
+        "count": 8260,
+        "latencies": {
+          "count": 8260,
+          "max": 6,
+          "min": 0,
+          "nodes": [
+            [
+              0,
+              4,
+              8
+            ],
+            [
+              0,
+              0,
+              8252
+            ]
+          ]
+        }
+      },
+      "inspections": {
+        "duration": 21600,
+        "results": [],
+        "timestamp": 1790353500
+      }
+    }
+  }
+}

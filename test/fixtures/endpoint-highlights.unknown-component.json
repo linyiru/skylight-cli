@@ -1,0 +1,20 @@
+{
+  "scenario": "endpoint-highlights.unknown-component",
+  "description": "Valid client token, another component id",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx836a3f2531/endpoint_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "timestamp": 1790353500,
+      "duration": 21600
+    }
+  },
+  "response": {
+    "status": 404,
+    "contentType": null,
+    "body": null
+  }
+}

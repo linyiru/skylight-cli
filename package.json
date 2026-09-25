@@ -38,10 +38,13 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc",
     "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test \"test/**/*.test.ts\"",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "fixtures:record": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/record-fixtures.ts",
+    "test:live": "SKYLIGHT_LIVE=1 node --experimental-strip-types --no-warnings=ExperimentalWarning --test test/live.test.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.4",
+    "msw": "2.15.0",
     "typescript": "7.0.2"
   }
 }

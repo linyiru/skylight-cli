@@ -1,0 +1,23 @@
+{
+  "scenario": "auth.bearer-prefix",
+  "description": "MCP token sent with a Bearer prefix",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/mcp/authenticate",
+    "auth": "mcp",
+    "bearer": true,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "contentType": "application/json; charset=utf-8",
+    "body": {
+      "error": {
+        "status": 401,
+        "reason": "unauthorized",
+        "message": "Invalid or inactive MCP token."
+      }
+    }
+  }
+}

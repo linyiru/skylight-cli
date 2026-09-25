@@ -1,0 +1,17 @@
+{
+  "scenario": "apps.mcp-token",
+  "description": "MCP token used where a session token is required",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/mcp/apps",
+    "auth": "mcp",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  }
+}

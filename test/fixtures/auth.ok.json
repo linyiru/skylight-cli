@@ -1,0 +1,26 @@
+{
+  "scenario": "auth.ok",
+  "description": "MCP token exchanged for a session token and data_url",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/mcp/authenticate",
+    "auth": "mcp",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "body": {
+      "session": {
+        "token": "test-session-token",
+        "expiry_ttl": 10800,
+        "expiry_ts": 1790385937,
+        "refresh_ttl": 4740,
+        "refresh_ts": 1790379877
+      },
+      "data_url": "https://data-v3.skylight.io"
+    }
+  }
+}

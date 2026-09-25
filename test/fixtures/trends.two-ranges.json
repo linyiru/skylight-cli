@@ -1,0 +1,99 @@
+{
+  "scenario": "trends.two-ranges",
+  "description": "Two ranges in one request (sum within 7 days)",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/application_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "ranges": [
+        {
+          "timestamp": 1790366400,
+          "step": 60,
+          "count": 2
+        },
+        {
+          "timestamp": 1790370000,
+          "step": 600,
+          "count": 2
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "ranges": [
+        {
+          "timestamp": 1790366400,
+          "duration": 120,
+          "step": 60,
+          "counts": [
+            420,
+            281
+          ],
+          "latenciesP50": [
+            11,
+            8
+          ],
+          "latenciesP90": [
+            35,
+            75
+          ],
+          "latenciesP95": [
+            40,
+            77
+          ],
+          "latenciesP98": [
+            43,
+            80
+          ],
+          "latenciesP99": [
+            47,
+            81
+          ],
+          "latenciesMax": [
+            365,
+            155
+          ]
+        },
+        {
+          "timestamp": 1790370000,
+          "duration": 1200,
+          "step": 600,
+          "counts": [
+            2423,
+            2065
+          ],
+          "latenciesP50": [
+            6,
+            7
+          ],
+          "latenciesP90": [
+            19,
+            18
+          ],
+          "latenciesP95": [
+            23,
+            21
+          ],
+          "latenciesP98": [
+            30,
+            26
+          ],
+          "latenciesP99": [
+            35,
+            31
+          ],
+          "latenciesMax": [
+            667,
+            545
+          ]
+        }
+      ]
+    }
+  }
+}
