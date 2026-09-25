@@ -71,12 +71,39 @@ Observed on 2026-09-25 against `skylight-mcp 0.1.0`. The `Authorization` header 
 `/deploys` returns 406 for `Accept: application/json`, so the client sends `Accept: */*` like the official server.
 Upstream returns the full list; `limit` is applied client-side.
 
-Not yet verified. These paths were inferred from strings in the official binary:
+### Verified 2026-09-25, not yet in the CLI
 
-| MCP tool | Probable path | Response fields |
-| --- | --- | --- |
-| `get_latency_trends` | `{data_url}/apps/{component}/application_highlights` | `ranges[]`: `counts`, `latenciesP50/P90/P95/P98/P99/Max` |
-| `get_endpoint_detail` | `{data_url}/apps/{component}/endpoints/{endpoint}/summary` | `latencies` (q-digest), `trace` |
+**Latency trends**: `POST {data_url}/apps/{component}/application_highlights`, client API token.
+
+```json
+{"ranges": [{"timestamp": 1789765200, "step": 3600, "count": 168}]}
+```
+
+- `step` must be `60`, `600`, or `3600`. Other values return 422 `InvalidRangeStep`.
+- The sum of `step × count` over all ranges must be at most 604800 (7 days); otherwise 422 with an empty body.
+  A 45-day view therefore needs several requests. Zero ranges and duplicate ranges are accepted.
+- Unaligned timestamps are echoed back unchanged. Windows ending 60 days ago still return data.
+- Response `ranges[]` carries `timestamp`, `duration`, `step`, and per-step arrays `counts`,
+  `latenciesP50/P90/P95/P98/P99/Max` of length `count`.
+- 422 errors have a `text/plain` serde message naming the missing or invalid field.
+
+**Endpoint detail**: `POST {data_url}/apps/{component}/endpoints/{encodeURIComponent(name)}/summary`, body
+`{timestamp, duration}`, client API token. The name keeps its `<sk-segment>…</sk-segment>` suffix, percent-encoded.
+The response contains:
+
+- `endpoint`: `name`, `timestamp`, `duration`, `count`, and `latencies` as a q-digest (`count`, `min`, `max`,
+  `nodes[]` of 3-number tuples).
+- `trace`: `count`, `duration`, `timestamp`, `targets[]` (`start`, `length`, `requests[]`), and `nodes[]` of
+  positional tuples `[number|null, string, string|null, string|null, spans[]]`. Each span is 7 numbers followed by
+  `[[4 numbers], [number, [[key, value], …]]]`. Field meanings are not yet decoded.
+- `inspections`: `results[]` with `type` (e.g. `nPlusOneQuery`), `severity`, `event` (`[category, title, sql]`),
+  and q-digests `durations` and `repetitions`.
+
+The official MCP's `latency_range` (full/fastest/slowest) is not sent upstream; it filters trace spans locally.
+It also reads `www.skylight.io/source_locations?filter[id]=…` (unverified) to map trace nodes to source code.
+
+Latency values look like milliseconds. The app-wide hourly p95 is about 40, and one endpoint's q-digest spans 5 to 993.
+This is not confirmed.
 
 ## License
 
