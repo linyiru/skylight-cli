@@ -35,11 +35,11 @@ async function rejectsWithStatus(promise: Promise<unknown>, status: number, body
   });
 }
 
-async function cli(argv: string[]) {
+async function cli(argv: string[], { tty = false, env = {} }: { tty?: boolean; env?: Record<string, string> } = {}) {
   let stdout = '', stderr = '';
   const code = await main(argv, {
-    env: { SKYLIGHT_MCP_TOKEN: FIXTURE_TOKENS.mcp },
-    stdout: { write: (s: string) => { stdout += s; } }, stderr: { write: (s: string) => { stderr += s; } },
+    env: { SKYLIGHT_MCP_TOKEN: FIXTURE_TOKENS.mcp, ...env },
+    stdout: { write: (s: string) => { stdout += s; }, isTTY: tty }, stderr: { write: (s: string) => { stderr += s; } },
   });
   return { code, stdout, stderr };
 }
@@ -178,6 +178,39 @@ describe('source locations', () => {
     assert.equal(code, 0);
     assert.match(stdout, /^Source +deploy [0-9a-f]{7}(, [0-9a-f]{7})*; \d+ of \d+ locations resolved$/m);
     assert.match(stdout, /  app\/[\w/]+\.rb:\d+( \(\+\d+\))?$/m);
+  });
+
+  test('with a repo, app file:line links to GitHub: hyperlinks in a terminal, URLs in JSON', async () => {
+    const summary = fixture('summary.n-plus-one').response.body as EndpointSummary;
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: { name: string }[] };
+    const gitSha = (fixture('deploy.ok').response.body as { data: { attributes: { git_sha: string } } }).data.attributes.git_sha;
+    const handlers = () => [replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
+        endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
+      replay('summary.n-plus-one'), replay('source-locations.ok'),
+      http.get('https://www.skylight.io/deploys/:id', () => fixtureResponse(fixture('deploy.ok')))];
+    server.use(...handlers());
+    const terminal = await cli(['trace', summary.endpoint.name, '--full'], { tty: true, env: { SKYLIGHT_GITHUB_REPO: 'o/r' } });
+    assert.equal(terminal.code, 0);
+    assert.match(terminal.stdout, new RegExp(`\u001B\\]8;;https://github\\.com/o/r/tree/${gitSha}/app/[\\w/]+\\.rb#L\\d+\u001B\\\\app/`));
+    server.use(...handlers());
+    const piped = await cli(['trace', summary.endpoint.name, '--full', '--repo', 'o/r']);
+    assert.doesNotMatch(piped.stdout, /\u001B/);
+    server.use(...handlers());
+    const json = JSON.parse((await cli(['trace', summary.endpoint.name, '--full', '--repo', 'o/r', '--json'], { tty: true })).stdout);
+    const urls: string[] = [];
+    const walk = (node: { locations: { url: string | null }[]; children: unknown[] }) => {
+      urls.push(...node.locations.flatMap(l => (l.url ? [l.url] : [])));
+      (node.children as typeof node[]).forEach(walk);
+    };
+    walk(json);
+    assert.ok(urls.length > 0 && urls.every(u => u.startsWith(`https://github.com/o/r/tree/${gitSha}/app/`)));
+  });
+
+  test('an invalid repo is a usage error before any request', async () => {
+    const { code, stderr } = await cli(['trace', 'x', '--repo', 'gitlab.com/o/r/x']);
+    assert.equal(code, 2);
+    assert.match(stderr, /Invalid --repo/);
   });
 
   test('a deploy that fails to load only drops its git sha', async () => {

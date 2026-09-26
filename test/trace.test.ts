@@ -78,6 +78,9 @@ test('locates nodes: app code first, synthetic events dropped, unknown digests k
   const located = locateTraceTree(tree, new Map([['syn00', '<synthetic>'], ['gem01', 'activerecord'], ['app01', 'app/models/user.rb']]),
     new Map([['d1', 'abcdef1234']]));
   assert.deepEqual(located.locations, []);
+  const linked = locateTraceTree(tree, new Map([['app01', 'app/models/user.rb'], ['gem01', 'activerecord']]),
+    new Map([['d1', 'abcdef1234']]), 'o/r').children[0]!.locations;
+  assert.deepEqual(linked.map(l => l.url), ['https://github.com/o/r/tree/abcdef1234/app/models/user.rb#L12', null, null]);
   assert.deepEqual(located.children[0]!.locations.map(l => [l.name, l.line, l.inApp, l.gitSha]), [
     ['app/models/user.rb', 12, true, 'abcdef1234'], [null, 3, true, 'abcdef1234'], ['activerecord', null, false, 'abcdef1234']]);
 });

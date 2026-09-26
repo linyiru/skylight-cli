@@ -108,6 +108,9 @@ export const SCENARIOS: Scenario[] = [
     request: ctx => ({ method: 'POST', url: `${ctx.dataUrl}/apps/${ctx.componentGuid}/endpoint_highlights`, auth: 'client',
       body: { timestamp: lastMonday() - 60 * 86_400, duration: 86_400 } }) },
 
+  { name: 'app.session-token', description: "The app record (with its GitHub repo) needs a web login, not an MCP session",
+    request: ctx => ({ method: 'GET', auth: 'session', url: `${WEB_URL}/apps/${ctx.appGuid}` }) },
+
   { name: 'deploys.ok', description: 'Deploys for the last 45 days',
     request: ctx => ({ method: 'GET', auth: 'session',
       url: `${WEB_URL}/deploys?timestamp=${ctx.since6h + 21_600 - 3_888_000}&duration=3888000&app_component_id=${ctx.componentGuid}` }) },

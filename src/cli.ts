@@ -12,6 +12,7 @@ import {
 } from './trace.ts';
 import { digestHistogram, digestQuantile } from './digest.ts';
 import { compareEndpoints, type EndpointChange } from './compare.ts';
+import { githubCommitUrl, parseGithubRepo, terminalLink } from './github.ts';
 import { WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
 import type { RankedEndpoint } from './rank.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
@@ -67,12 +68,15 @@ Options:
                        report: in each week (default 100)
       --week <date>    report: any date in the week (YYYY-MM-DD, UTC; default: last full week)
       --weeks <n>      report: weeks for frog boils, 3-6 (default 6; Skylight keeps about 7)
+      --repo <o/n>     GitHub repo (owner/name or URL) for links: trace file:line and
+                       compare commits link there (clickable in terminals that support it)
       --json           Print JSON instead of a table
   -h, --help           Show this help
   -v, --version        Show version
 
 Environment:
   SKYLIGHT_MCP_TOKEN   Token from https://www.skylight.io/app/settings/mcp (required)
+  SKYLIGHT_GITHUB_REPO Same as --repo
 `;
 
 const OPTIONS = {
@@ -89,6 +93,7 @@ const OPTIONS = {
   'no-sources': { type: 'boolean' },
   deploy: { type: 'string' },
   week: { type: 'string' },
+  repo: { type: 'string' },
   weeks: { type: 'string' },
   'min-requests': { type: 'string' },
   json: { type: 'boolean' },
@@ -177,7 +182,10 @@ function inspectionText(inspection: Inspection): string {
 }
 
 interface Output { json: unknown; text: string }
-type Command = (client: SkylightClient, options: Options, componentId: string | undefined, args: string[]) => Promise<Output>;
+/** Output context: the GitHub repo for links, and whether stdout is a terminal that can show hyperlinks. */
+interface Context { repo: string | undefined; links: boolean }
+
+type Command = (client: SkylightClient, options: Options, componentId: string | undefined, args: string[], context: Context) => Promise<Output>;
 
 /** compare: the after window starts this long after a deploy starts, past the rollout. */
 const DEPLOY_SETTLE_SECONDS = 300;
@@ -236,25 +244,29 @@ function histogramLines(detail: EndpointSummary): string[] {
 
 const ms = (value: number) => value.toFixed(1);
 
-/** `app/x.rb:12 (+2)` for app code, `[gem]` when only gems are involved, nothing for synthetic events. */
-function sourceSuffix(node: TraceTreeNode | LocatedTraceTreeNode): string {
+/**
+ * `app/x.rb:12 (+2)` for app code, `[gem]` when only gems are involved, nothing for synthetic events. With `links`,
+ * file:line becomes a terminal hyperlink to GitHub.
+ */
+function sourceSuffix(node: TraceTreeNode | LocatedTraceTreeNode, links: boolean): string {
   if (!('locations' in node) || !node.locations.length) return '';
   const [first] = node.locations;
   const app = node.locations.filter(l => l.inApp);
   if (app.length) {
     const others = new Set(app.map(l => `${l.name}:${l.line}`)).size - 1;
-    return `  ${first!.name ?? '(unknown source)'}:${first!.line}${others ? ` (+${others})` : ''}`;
+    const text = `${first!.name ?? '(unknown source)'}:${first!.line}`;
+    return `  ${links && first!.url ? terminalLink(text, first!.url) : text}${others ? ` (+${others})` : ''}`;
   }
   return first!.name ? `  [${first!.name}]` : '';
 }
 
-function traceLines(node: TraceTreeNode | LocatedTraceTreeNode, prefix = '', last = true, isRoot = true): string[] {
+function traceLines(node: TraceTreeNode | LocatedTraceTreeNode, links = false, prefix = '', last = true, isRoot = true): string[] {
   const repeated = node.repetitions > 1 ? ` ×${node.repetitions < 10 ? node.repetitions.toFixed(1) : Math.round(node.repetitions)}` : '';
-  const label = `${isRoot ? '' : `${prefix}${last ? '└─ ' : '├─ '}`}${node.title ?? node.category}${repeated}${sourceSuffix(node)}`;
+  const label = `${isRoot ? '' : `${prefix}${last ? '└─ ' : '├─ '}`}${node.title ?? node.category}${repeated}${sourceSuffix(node, links)}`;
   const row = [ms(node.startMs).padStart(7), ms(node.durationMs).padStart(7), ms(node.selfMs).padStart(7),
     Math.round(node.allocations).toLocaleString('en-US').padStart(9), `${Math.round(node.occurrence * 100)}%`.padStart(5), label].join('  ');
   const childPrefix = isRoot ? '' : `${prefix}${last ? '   ' : '│  '}`;
-  return [row, ...node.children.flatMap((child, i) => traceLines(child, childPrefix, i === node.children.length - 1, false))];
+  return [row, ...node.children.flatMap((child, i) => traceLines(child, links, childPrefix, i === node.children.length - 1, false))];
 }
 
 const COMPONENT_COLUMNS: Column<Component>[] = [
@@ -313,7 +325,7 @@ const COMMANDS: Record<string, Command> = {
     return { json: { ...detail, highlight }, text };
   },
 
-  async trace(client, options, componentId, [query]) {
+  async trace(client, options, componentId, [query], { repo, links }) {
     const range = latencyRange(options.latency);
     const minMs = options['min-ms'] === undefined ? 0 : Number(options['min-ms']);
     if (!Number.isFinite(minMs) || minMs < 0) throw new UsageError(`Invalid --min-ms: ${options['min-ms']}`);
@@ -336,7 +348,7 @@ const COMMANDS: Record<string, Command> = {
         const [names, settled] = await Promise.all([client.getSourceLocations({ componentId, digests }),
           Promise.allSettled(deployRefs.map(id => client.getDeploy({ id }).then(d => [id, d.attributes.git_sha] as const)))]);
         const deploys = settled.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
-        result = locateTraceTree(shown, names, new Map(deploys));
+        result = locateTraceTree(shown, names, new Map(deploys), repo);
         const shas = [...new Set(deploys.map(([, sha]) => sha.slice(0, 7)))];
         sources = shas.length ? `Source    deploy ${shas.join(', ')}; ${names.size} of ${digests.length} locations resolved\n` : '';
       } catch (error) {
@@ -352,7 +364,7 @@ const COMMANDS: Record<string, Command> = {
       + sources
       + (hidden ? `Hidden    ${hidden} events (folded middleware${options.full ? '' : ', under 1% of requests'}${minMs ? `, under ${minMs} ms` : ''}); --full shows all\n` : '')
       + `\n  START      DUR     SELF     ALLOC   SEEN  EVENT (times in ms, averaged over requests that include the event)\n`
-      + traceLines(result).join('\n') + '\n';
+      + traceLines(result, links).join('\n') + '\n';
     return { json: result, text };
   },
 
@@ -369,7 +381,7 @@ const COMMANDS: Record<string, Command> = {
       ['P50', r => r.p50], ['P95', r => r.p95], ['P99', r => r.p99], ['MAX', r => r.max]]) };
   },
 
-  async compare(client, options, componentId) {
+  async compare(client, options, componentId, _args, { repo, links }) {
     const { data: deploys } = await client.listDeploys({ componentId, limit: LIMIT.max });
     const ref = options.deploy?.toLowerCase();
     const index = ref === undefined ? 0 : deploys.findIndex(d => d.attributes.git_sha?.toLowerCase().startsWith(ref)
@@ -408,7 +420,10 @@ const COMMANDS: Record<string, Command> = {
       ['ENDPOINT', c => c.name]];
     const slower = result.changed.filter(c => c.impactMsPerMinute > 0).slice(0, limit);
     const faster = result.changed.filter(c => c.impactMsPerMinute < 0).reverse().slice(0, Math.min(5, limit));
-    const text = `Deploy    ${deploy.attributes.git_sha.slice(0, 7)} at ${time(started)}  ${oneLine(deploy.attributes.description, 70)}\n`
+    const sha = deploy.attributes.git_sha;
+    const commit = repo && sha ? githubCommitUrl(repo, sha) : null;
+    const text = `Deploy    ${links && commit ? terminalLink(sha.slice(0, 7), commit) : sha.slice(0, 7)} at ${time(started)}  ${oneLine(deploy.attributes.description, 70)}\n`
+      + (commit && !links ? `Commit    ${commit}\n` : '')
       + `Windows   before ${hhmm(before.timestamp)}-${hhmm(before.timestamp + before.duration)}, after ${hhmm(after.timestamp)}-${hhmm(after.timestamp + after.duration)} UTC (${Math.round(seconds / 60)} min each)\n`
       + `Compared  ${result.changed.length} endpoints with at least ${minRequests} requests in both; `
       + `${result.appeared.length} appeared, ${result.disappeared.length} disappeared\n`
@@ -416,7 +431,7 @@ const COMMANDS: Record<string, Command> = {
       + `\nSlower (request time added per minute)\n${table(slower, columns)}`
       + `\nFaster\n${table(faster, columns)}`
       + (result.appeared.length ? `\nAppeared  ${result.appeared.slice(0, 5).map(e => e.name).join(', ')}${result.appeared.length > 5 ? ', …' : ''}\n` : '');
-    return { json: { deploy, before: { timestamp: before.timestamp, duration: before.duration },
+    return { json: { deploy, commitUrl: commit, before: { timestamp: before.timestamp, duration: before.duration },
       after: { timestamp: after.timestamp, duration: after.duration }, minRequests, ...result }, text };
   },
 
@@ -473,7 +488,7 @@ const COMMANDS: Record<string, Command> = {
   },
 };
 
-interface Writable { write(chunk: string): unknown }
+interface Writable { write(chunk: string): unknown; isTTY?: boolean }
 
 export interface MainIO {
   env?: Record<string, string | undefined>;
@@ -506,6 +521,9 @@ export async function main(argv: string[], { env = process.env, stdout = process
     return 2;
   }
   try {
+    const repoValue = options.repo ?? (env.SKYLIGHT_GITHUB_REPO || undefined);
+    const repo = parseGithubRepo(repoValue);
+    if (repoValue !== undefined && !repo) throw new UsageError(`Invalid --repo: ${repoValue} (expected owner/name or a github.com URL)`);
     let client: SkylightClient;
     try {
       client = new SkylightClient({ token: env.SKYLIGHT_MCP_TOKEN, ...(fetch ? { fetch } : {}) });
@@ -513,7 +531,8 @@ export async function main(argv: string[], { env = process.env, stdout = process
       throw new UsageError('SKYLIGHT_MCP_TOKEN is not set; create one at https://www.skylight.io/app/settings/mcp');
     }
     const componentId = await resolveComponent(client, options.component ?? (env.SKYLIGHT_COMPONENT_ID || undefined));
-    const output = await run(client, options, componentId, extra);
+    // Hyperlinks only for a terminal; pipes and --json get plain text (and URLs in the JSON).
+    const output = await run(client, options, componentId, extra, { repo, links: Boolean(stdout.isTTY) && !options.json });
     stdout.write(options.json ? `${JSON.stringify(output.json, null, 2)}\n` : output.text);
     return 0;
   } catch (error) {

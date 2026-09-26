@@ -21,3 +21,4 @@ export type { EndpointChange, WindowComparison } from './compare.ts';
 export type { Grade, RankedEndpoint } from './rank.ts';
 export { WEEK_SECONDS, aggregateAppSeries, aggregateEndpointDays, weekStart, weeklyReport } from './weekly.ts';
 export type { FrogBoil, PercentileReport, WeekData, WeekStats, WeeklyChange, WeeklyReport, WeeklyReportOptions } from './weekly.ts';
+export { githubCommitUrl, githubFileUrl, parseGithubRepo, terminalLink } from './github.ts';

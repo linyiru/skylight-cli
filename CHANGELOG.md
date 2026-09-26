@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--repo owner/name` (or `$SKYLIGHT_GITHUB_REPO`) links app `file:line` in `trace` and the commit in `compare` to
+  GitHub at the deployed sha. The links match Skylight's UI. They are clickable OSC 8 hyperlinks in terminals, and
+  `url` fields in `--json`. `githubFileUrl()`, `githubCommitUrl()`, `parseGithubRepo()`.
+
 ## [0.6.0] - 2026-09-25
 
 ### Added

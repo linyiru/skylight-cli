@@ -1,0 +1,17 @@
+{
+  "scenario": "app.session-token",
+  "description": "The app record (with its GitHub repo) needs a web login, not an MCP session",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/apps/fx455a46cba8",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  }
+}

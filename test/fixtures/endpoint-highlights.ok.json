@@ -8,7 +8,7 @@
     "bearer": false,
     "accept": "*/*",
     "body": {
-      "timestamp": 1790359920,
+      "timestamp": 1790360760,
       "duration": 21600
     }
   },
@@ -16,94 +16,94 @@
     "status": 200,
     "contentType": "application/json",
     "body": {
-      "timestamp": 1790359920,
+      "timestamp": 1790360760,
       "duration": 21600,
       "endpoints": [
         {
-          "name": "graphql:Res0ab0a<sk-segment>json</sk-segment>",
-          "count": 80,
-          "latencyP50": 7,
-          "latencyP95": 16,
-          "latencyP99": 40,
-          "inspections": {
-            "objectAllocations": 3581,
-            "nPlusOneQuery": 0
-          }
-        },
-        {
-          "name": "Res1f140::Res5a738::Res1fcd0Controller#resf2e43<sk-segment>html</sk-segment>",
+          "name": "Res1f140::Resbb683::Res5a738::Resdb582Controller#resf2e43<sk-segment>json</sk-segment>",
           "count": 1,
-          "latencyP50": 47,
-          "latencyP95": 47,
-          "latencyP99": 47,
+          "latencyP50": 25,
+          "latencyP95": 35,
+          "latencyP99": 35,
           "inspections": {
-            "objectAllocations": 14887,
+            "objectAllocations": 6119,
             "nPlusOneQuery": 0
           }
         },
         {
-          "name": "Res1f140::Res5a738::Res213d9Controller#res6a394<sk-segment>html</sk-segment>",
+          "name": "graphql:Res2c732<sk-segment>json</sk-segment>",
+          "count": 2,
+          "latencyP50": 16,
+          "latencyP95": 25,
+          "latencyP99": 25,
+          "inspections": {
+            "objectAllocations": 4949,
+            "nPlusOneQuery": 0
+          }
+        },
+        {
+          "name": "graphql:Res97079<sk-segment>json</sk-segment>",
+          "count": 2,
+          "latencyP50": 16,
+          "latencyP95": 18,
+          "latencyP99": 18,
+          "inspections": {
+            "objectAllocations": 4512,
+            "nPlusOneQuery": 0
+          }
+        },
+        {
+          "name": "Resda97d::Res0cf11Controller#res64e66<sk-segment>json</sk-segment>",
           "count": 1,
-          "latencyP50": 36,
-          "latencyP95": 36,
-          "latencyP99": 36,
+          "latencyP50": 6,
+          "latencyP95": 7,
+          "latencyP99": 7,
           "inspections": {
-            "objectAllocations": 13844,
+            "objectAllocations": 1851,
             "nPlusOneQuery": 0
           }
         },
         {
-          "name": "Rese2dbd::Resc9522Controller#resabff0<sk-segment>res3538e</sk-segment>",
-          "count": 3,
-          "latencyP50": 8,
+          "name": "graphql:Res52c48<sk-segment>json</sk-segment>",
+          "count": 10,
+          "latencyP50": 86,
+          "latencyP95": 107,
+          "latencyP99": 107,
+          "inspections": {
+            "objectAllocations": 8274,
+            "nPlusOneQuery": 0
+          }
+        },
+        {
+          "name": "graphql:Resaf899<sk-segment>json</sk-segment>",
+          "count": 130,
+          "latencyP50": 9,
           "latencyP95": 14,
-          "latencyP99": 14,
+          "latencyP99": 19,
           "inspections": {
-            "objectAllocations": 3336,
+            "objectAllocations": 2945,
             "nPlusOneQuery": 0
           }
         },
         {
-          "name": "graphql:Res627c7<sk-segment>res7b154</sk-segment>",
-          "count": 1,
-          "latencyP50": 14,
-          "latencyP95": 14,
-          "latencyP99": 14,
-          "inspections": {
-            "objectAllocations": 2134,
-            "nPlusOneQuery": 0
-          }
-        },
-        {
-          "name": "Res9163b::Rese5d1a::Resf5739::Res05679Controller#resabff0<sk-segment>json</sk-segment>",
-          "count": 4,
-          "latencyP50": 71,
-          "latencyP95": 478,
-          "latencyP99": 478,
-          "inspections": {
-            "objectAllocations": 95727,
-            "nPlusOneQuery": 16
-          }
-        },
-        {
-          "name": "Res9163b::Rese5d1a::Res0cac4::Resa59dcController#res7150a<sk-segment>json</sk-segment>",
+          "name": "graphql:Res7029d<sk-segment>json</sk-segment>",
           "count": 3,
-          "latencyP50": 45,
-          "latencyP95": 73,
-          "latencyP99": 73,
+          "latencyP50": 16,
+          "latencyP95": 20,
+          "latencyP99": 20,
           "inspections": {
-            "objectAllocations": 15426,
+            "objectAllocations": 5665,
             "nPlusOneQuery": 0
           }
         },
         {
-          "name": "graphql:Res2229b<sk-segment>json</sk-segment>",
-          "count": 76,
-          "latencyP50": 26,
-          "latencyP95": 36,
-          "latencyP99": 46,
+          "name": "Res1f140::Resbb683::Resac778Controller#res827ce<sk-segment>html+resdb4c3-res13c67</sk-segment>",
+          "count": 1,
+          "latencyP50": 27,
+          "latencyP95": 27,
+          "latencyP99": 27,
           "inspections": {
-            "objectAllocations": 7682,
+            "objectAllocations": 6972,
             "nPlusOneQuery": 0
           }
         }

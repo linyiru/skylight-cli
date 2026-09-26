@@ -3,7 +3,7 @@
   "description": "Deploys for the last 45 days",
   "request": {
     "method": "GET",
-    "url": "https://www.skylight.io/deploys?timestamp=1786493520&duration=3888000&app_component_id=fx4411e8845d",
+    "url": "https://www.skylight.io/deploys?timestamp=1786494360&duration=3888000&app_component_id=fx4411e8845d",
     "auth": "session",
     "bearer": false,
     "accept": "*/*",
@@ -19,7 +19,7 @@
           "type": "deploys",
           "attributes": {
             "start_at": "2026-09-26T00:09:53+00:00",
-            "end_at": null,
+            "end_at": "2026-09-26T03:09:53+00:00",
             "deploy_id": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
             "git_sha": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
             "description": "description-35b9ebef"

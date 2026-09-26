@@ -1,3 +1,4 @@
+import { githubFileUrl } from './github.ts';
 import type { TraceNode, TraceSpan, TraceTarget } from './types.ts';
 
 /** One event in the aggregated trace. Times are ms, averaged over the sampled requests the node occurs in. */
@@ -170,6 +171,8 @@ export interface TraceSourceLocation {
   inApp: boolean;
   deployRef: string;
   gitSha: string | null;
+  /** GitHub link to the line at that deploy, for app code when a repo was given. */
+  url: string | null;
 }
 
 export interface LocatedTraceTreeNode extends Omit<TraceTreeNode, 'children'> {
@@ -178,17 +181,24 @@ export interface LocatedTraceTreeNode extends Omit<TraceTreeNode, 'children'> {
   children: LocatedTraceTreeNode[];
 }
 
-/** Attaches resolved source names (by digest) and deploy git shas (by deploy ref) to every node. */
+/**
+ * Attaches resolved source names (by digest) and deploy git shas (by deploy ref) to every node, and GitHub links
+ * for app code when `repo` (`owner/name`) is given.
+ */
 export function locateTraceTree(node: TraceTreeNode, names: ReadonlyMap<string, string>,
-  gitShas: ReadonlyMap<string, string> = new Map()): LocatedTraceTreeNode {
+  gitShas: ReadonlyMap<string, string> = new Map(), repo?: string): LocatedTraceTreeNode {
   const locations = node.sources.map(parseTraceSource)
     .filter((ref): ref is TraceSourceRef => ref !== undefined)
-    .map(ref => ({ name: names.get(ref.digest) ?? null, line: ref.line, inApp: ref.line !== null, deployRef: ref.deployRef,
-      gitSha: gitShas.get(ref.deployRef) ?? null }))
+    .map(ref => {
+      const name = names.get(ref.digest) ?? null, gitSha = gitShas.get(ref.deployRef) ?? null;
+      // Gems live outside the app's repo, so only app code (which has a line) gets a link.
+      const url = repo && name && gitSha && ref.line !== null ? githubFileUrl(repo, gitSha, name, ref.line) : null;
+      return { name, line: ref.line, inApp: ref.line !== null, deployRef: ref.deployRef, gitSha, url };
+    })
     .filter(location => location.name !== '<synthetic>')
     .sort((a, b) => Number(b.inApp) - Number(a.inApp) || Number(a.name === null) - Number(b.name === null)
       || (a.name ?? '').localeCompare(b.name ?? '') || (a.line ?? 0) - (b.line ?? 0));
-  return { ...node, locations, children: node.children.map(child => locateTraceTree(child, names, gitShas)) };
+  return { ...node, locations, children: node.children.map(child => locateTraceTree(child, names, gitShas, repo)) };
 }
 
 /** Skylight's time breakdown groups; everything else (rack, noise, agent, api, …) counts as `other`. */

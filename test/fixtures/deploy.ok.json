@@ -18,7 +18,7 @@
         "type": "deploys",
         "attributes": {
           "start_at": "2026-09-26T00:09:53+00:00",
-          "end_at": null,
+          "end_at": "2026-09-26T03:09:53+00:00",
           "deploy_id": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
           "git_sha": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
           "description": "description-35b9ebef"

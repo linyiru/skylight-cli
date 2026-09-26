@@ -27,6 +27,7 @@ skylight-cli endpoints -c staging/web --at 1790000000 --since 1h
 skylight-cli endpoint users#show                 # latency, time breakdown, N+1 queries, distribution
 skylight-cli trace graphql:CoursePage            # aggregated trace tree: start, duration, self time, allocations
 skylight-cli trace users#show --latency slowest  # only requests above p95; or fastest, or 500-5000
+skylight-cli trace users#show --repo owner/app   # file:line links to GitHub at the deployed commit
                                                  # each event shows its app file:line, or [gem]
 skylight-cli trends --since 24h                  # app-wide count and p50/p95/p99, 10-minute buckets
 skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel requests
@@ -50,6 +51,7 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 | `--min-ms` | Trace: hide events shorter than this many ms on average. |
 | `--latency` | Trace: only requests in a response-time range: `a-b` ms, `fastest` (quickest 30%), or `slowest` (above p95). |
 | `--no-sources` | Trace: skip resolving source locations (two extra requests). |
+| `--repo` | GitHub repo, `owner/name` or a github.com URL, also `$SKYLIGHT_GITHUB_REPO`. Links `trace` file:line and the `compare` commit to GitHub. |
 | `--step` | Trends bucket: `60`, `600`, or `3600` seconds. Default: 60 up to 2h, 600 up to 24h, else 3600. |
 | `--json` | Machine-readable output. |
 
@@ -95,6 +97,10 @@ used), or a search term that matches exactly one endpoint; otherwise they list c
 averaging. `SEEN` is the share of requests that include the event, as in Skylight's "Occurs in N% of requests".
 Each event is followed by its app `file:line` (with `(+N)` for more call sites), or `[gem]` when only library code is
 involved, resolved for the deploy that recorded the trace. If the lookup fails, the trace still prints.
+
+With `--repo`, app `file:line` links to `github.com/{repo}/tree/{deployed sha}/{path}#L{line}`, the same link as
+Skylight's UI. In a terminal the link is an OSC 8 hyperlink, and in `--json` each location carries a `url`.
+Skylight stores the repo, but only behind a web login (`/apps/{id}` answers 401 to an MCP session), so pass it in.
 Its p50/p95/p99 are Skylight's own figures; min and max come from the endpoint's latency digest.
 
 Latencies are in milliseconds.
@@ -178,7 +184,7 @@ Error responses, as recorded in [`test/fixtures`](test/fixtures):
 | Malformed body, bad trends `step`, missing fields | 422 | `text/plain` serde message, e.g. `ranges[0].step: InvalidRangeStep` |
 | Endpoint window over 24h, trends over 7 days | 422 | empty |
 | `/source_locations` or `/trends_intervals` without a filter | 400 | empty |
-| `/trends_reports/…` with an MCP session token | 401 | empty |
+| `/trends_reports/…`, `/apps/{id}`, or `/github/commit` with an MCP session token | 401 | empty |
 | Summary name not percent-encoded | 404 | empty |
 
 ## Development
