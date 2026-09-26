@@ -11,7 +11,7 @@ import {
   traceSourceRefs, type LocatedTraceTreeNode, type TraceTreeNode,
 } from './trace.ts';
 import { digestHistogram, digestQuantile } from './digest.ts';
-import { compareEndpoints, type EndpointChange } from './compare.ts';
+import { compareEndpoints, type EndpointChange, type ErrorChange } from './compare.ts';
 import { githubCommitUrl, parseGithubLocation, terminalLink, type GithubLocation } from './github.ts';
 import { WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
 import { rankEndpoints, type RankedEndpoint } from './rank.ts';
@@ -276,9 +276,13 @@ function traceLines(node: TraceTreeNode | LocatedTraceTreeNode, links = false, p
 const COMPONENT_COLUMNS: Column<Component>[] = [
   ['GUID', c => c.guid], ['ENVIRONMENT', c => c.environment], ['NAME', c => c.name], ['APP', c => c.appName]];
 
+/** 36%, 1.2%, 0.05%: enough precision to see small but real error rates. */
+const percentOf = (rate: number) => `${rate >= 0.1 ? Math.round(rate * 100) : rate >= 0.01 ? (rate * 100).toFixed(1) : (rate * 100).toFixed(2)}%`;
+
 const ENDPOINT_COLUMNS: Column<RankedEndpoint>[] = [
   ['GRADE', e => e.grade], ['AGONY', e => '!'.repeat(e.agony) || '-'], ['RPM', e => e.rpm < 10 ? e.rpm.toFixed(2) : Math.round(e.rpm)],
   ['P50', e => e.latencyP50], ['P95', e => e.latencyP95], ['P99', e => e.latencyP99],
+  ['ERR%', e => (e.errorRate ? percentOf(e.errorRate) : '')],
   ['FLAGS', e => [e.inspections?.nPlusOneQuery ? 'N+1' : '', e.highAllocations ? 'ALLOC' : ''].filter(Boolean).join(',')],
   ['ENDPOINT', e => e.name]];
 
@@ -437,6 +441,10 @@ const COMMANDS: Record<string, Command> = {
       ['P50', c => `${c.before.latencyP50}→${c.after.latencyP50}${percent(c.p50Change)}`],
       ['P95', c => `${c.before.latencyP95}→${c.after.latencyP95}${percent(c.p95Change)}`],
       ['ENDPOINT', c => c.name]];
+    const errorColumns: Column<ErrorChange>[] = [
+      ['ERR/MIN', c => `${c.addedErrorsPerMinute >= 0 ? '+' : ''}${c.addedErrorsPerMinute.toFixed(1)}`],
+      ['ERROR RATE', c => `${percentOf(c.before.errorRate)}→${percentOf(c.after.errorRate)}`],
+      ['RPM', c => `${c.before.rpm.toFixed(1)}→${c.after.rpm.toFixed(1)}`], ['ROUTE', c => c.name]];
     const slower = result.changed.filter(c => c.impactMsPerMinute > 0).slice(0, limit);
     const faster = result.changed.filter(c => c.impactMsPerMinute < 0).reverse().slice(0, Math.min(5, limit));
     const sha = deploy.attributes.git_sha;
@@ -453,6 +461,8 @@ const COMMANDS: Record<string, Command> = {
       + (overlapping ? `Note      the next deploy (${next.attributes.git_sha.slice(0, 7)} at ${time(Date.parse(next.attributes.start_at) / 1000)}) falls inside the after window\n` : '')
       + `\nSlower (request time added per minute)\n${table(slower, columns)}`
       + `\nFaster\n${table(faster, columns)}`
+      + `\nMore errors (errors per minute beyond the old rate)\n${table(result.moreErrors.slice(0, limit), errorColumns)}`
+      + (result.fewerErrors.length ? `\nFewer errors\n${table(result.fewerErrors.slice(0, Math.min(5, limit)), errorColumns)}` : '')
       + (result.appeared.length ? `\nAppeared  ${result.appeared.slice(0, 5).map(e => e.name).join(', ')}${result.appeared.length > 5 ? ', …' : ''}\n` : '');
     return { json: { deploy, commitUrl: commit, baseline, baselineDeploy: baselineDeploy ?? null, deploysSince,
       before: { timestamp: before.timestamp, duration: before.duration },

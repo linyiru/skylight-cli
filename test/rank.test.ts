@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gradeFor, rankEndpoints } from '../src/rank.ts';
+import { gradeFor, rankEndpoints, splitEndpointName } from '../src/rank.ts';
 import { digestHistogram, digestQuantile } from '../src/digest.ts';
 import type { EndpointHighlight, QDigest } from '../src/types.ts';
 
@@ -43,4 +43,16 @@ test('digest quantiles and histograms preserve the total count', () => {
   const buckets = digestHistogram(digest, { from: 0, to: 1024, buckets: 8 });
   assert.equal(Math.round(buckets.reduce((sum, b) => sum + b.count, 0)), 1_000);
   assert.throws(() => digestQuantile(digest, 2), RangeError);
+});
+
+test('error rate is per route: the error variant over all variants, shared by each', () => {
+  assert.deepEqual(splitEndpointName('graphql:Gate<sk-segment>json</sk-segment>'), { baseName: 'graphql:Gate', segment: 'json' });
+  assert.deepEqual(splitEndpointName('Plain#show'), { baseName: 'Plain#show', segment: null });
+  const ranked = rankEndpoints([
+    endpoint('graphql:Gate<sk-segment>json</sk-segment>', 640, 20, 40),
+    endpoint('graphql:Gate<sk-segment>error</sk-segment>', 360, 10, 20),
+    endpoint('Plain#show', 100, 10, 20),
+  ], 600);
+  assert.deepEqual(ranked.map(e => [e.baseName, e.segment, e.errorRate, e.errorsPerMinute]), [
+    ['graphql:Gate', 'json', 0.36, 36], ['graphql:Gate', 'error', 0.36, 36], ['Plain#show', null, 0, 0]]);
 });

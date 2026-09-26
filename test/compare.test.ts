@@ -21,3 +21,20 @@ test('ranks changes by request time added per minute, and lists new and gone end
   assert.deepEqual(disappeared.map(e => e.name), ['gone']);
   assert.ok(compareEndpoints(before, after, { minRequests: 1 }).changed.some(c => c.name === 'thin'));
 });
+
+test('error changes are per route, separating more errors from more traffic', () => {
+  const route = (errors: number, ok: number) => [
+    endpoint('Gate<sk-segment>json</sk-segment>', ok, 20), endpoint('Gate<sk-segment>error</sk-segment>', errors, 10)];
+  // Traffic doubles and errors double: same rate, so no error change. Busy's rate goes 1% → 5%.
+  const before = rankEndpoints([...route(10, 90), endpoint('Busy<sk-segment>json</sk-segment>', 990, 20),
+    endpoint('Busy<sk-segment>error</sk-segment>', 10, 5)], 600);
+  const after = rankEndpoints([...route(20, 180), endpoint('Busy<sk-segment>json</sk-segment>', 950, 20),
+    endpoint('Busy<sk-segment>error</sk-segment>', 50, 5)], 600);
+  const { moreErrors, fewerErrors } = compareEndpoints(before, after);
+  assert.deepEqual(moreErrors.map(c => c.name), ['Busy']);
+  assert.equal(moreErrors[0]!.before.errorRate, 0.01);
+  assert.equal(moreErrors[0]!.after.errorRate, 0.05);
+  // (5% - 1%) × 100 rpm = 4 errors per minute beyond the old rate.
+  assert.equal(moreErrors[0]!.addedErrorsPerMinute.toFixed(2), '4.00');
+  assert.deepEqual(fewerErrors, []);
+});

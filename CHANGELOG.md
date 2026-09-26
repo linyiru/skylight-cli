@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Error rates. Skylight files error responses under each route's `error` variant.
+  - `endpoints` shows each route's error rate (`ERR%`) and sorts by error responses per minute with
+    `--sort errors`.
+  - `compare` lists routes with more or fewer errors after a deploy, by errors per minute beyond the old rate.
+  - `splitEndpointName()`; `RankedEndpoint` gains `baseName`, `segment`, `errorRate`, and `errorsPerMinute`.
+
 ## [0.8.0] - 2026-09-25
 
 ### Added

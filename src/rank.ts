@@ -23,7 +23,29 @@ export interface RankedEndpoint extends EndpointHighlight {
   popularity: number;
   /** Among the top 5% by total allocations, and over 10,000 objects per request. */
   highAllocations: boolean;
+  /** The name without its `<sk-segment>` variant; all variants of one route share it. */
+  baseName: string;
+  /** e.g. `json`, `html`, `error`; null for names without a variant. */
+  segment: string | null;
+  /**
+   * Share of the route's requests (all its variants) that were errors, 0-1. Skylight files error responses under
+   * the `error` variant, so this is the same for every variant of a route.
+   */
+  errorRate: number;
+  /** Error responses per minute across the route. */
+  errorsPerMinute: number;
 }
+
+const SEGMENT = /<sk-segment>(.*)<\/sk-segment>$/;
+
+/** Splits `Name<sk-segment>json</sk-segment>` into the route and its response variant. */
+export function splitEndpointName(name: string): { baseName: string; segment: string | null } {
+  const match = SEGMENT.exec(name);
+  return match ? { baseName: name.slice(0, match.index), segment: match[1]! } : { baseName: name, segment: null };
+}
+
+/** Skylight's variant for error responses. */
+export const ERROR_SEGMENT = 'error';
 
 export function gradeFor(p50: number): Grade {
   return GRADE_THRESHOLDS.find(([bound]) => p50 <= bound)?.[1] ?? 'F';
@@ -53,7 +75,17 @@ export function rankEndpoints(endpoints: readonly EndpointHighlight[], durationS
   const totalAllocations = ascending(active.map(e => (e.inspections?.objectAllocations ?? 0) * rpmOf(e)));
   const maxRpm = rpms.at(-1) ?? 0;
   const allocationCutoff = percentile(totalAllocations, 95);
+  const routes = new Map<string, { requests: number; errors: number }>();
+  for (const e of active) {
+    const { baseName, segment } = splitEndpointName(e.name);
+    const route = routes.get(baseName) ?? { requests: 0, errors: 0 };
+    route.requests += e.count;
+    if (segment === ERROR_SEGMENT) route.errors += e.count;
+    routes.set(baseName, route);
+  }
   return endpoints.map(endpoint => {
+    const { baseName, segment } = splitEndpointName(endpoint.name);
+    const route = routes.get(baseName);
     const rpm = rpmOf(endpoint);
     const perRequest = endpoint.inspections?.objectAllocations ?? 0;
     const scaled = maxRpm ? 1 + (rpm / maxRpm) * 999 : 1;
@@ -63,6 +95,8 @@ export function rankEndpoints(endpoints: readonly EndpointHighlight[], durationS
       agony: endpoint.count > 0 ? Math.min(rankScore(rpms, rpm), rankScore(p50s, endpoint.latencyP50), rankScore(p95s, endpoint.latencyP95)) : 0,
       popularity: endpoint.count > 0 ? popularity : 0,
       highAllocations: endpoint.count > 0 && perRequest * rpm >= allocationCutoff && perRequest > 10_000,
+      baseName, segment, errorRate: route?.requests ? route.errors / route.requests : 0,
+      errorsPerMinute: (route?.errors ?? 0) * (60 / durationSeconds),
     };
   });
 }

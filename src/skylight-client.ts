@@ -18,6 +18,9 @@ const byDescending = (field: keyof RankedEndpoint) => (a: RankedEndpoint, b: Ran
 
 const SORTS: Record<EndpointSortKey, (a: RankedEndpoint, b: RankedEndpoint) => number> = {
   agony: (a, b) => b.agony - a.agony || b.rpm - a.rpm,
+  // Routes producing the most errors first; within a route, its error variant leads.
+  errors: (a, b) => b.errorsPerMinute - a.errorsPerMinute || Number(b.segment === 'error') - Number(a.segment === 'error')
+    || b.rpm - a.rpm,
   count: byDescending('count'), p50: byDescending('latencyP50'), p95: byDescending('latencyP95'), p99: byDescending('latencyP99'),
 };
 

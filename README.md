@@ -22,6 +22,7 @@ skylight-cli auth
 skylight-cli components                          # guid, environment, name
 skylight-cli endpoints                           # worst first, by Skylight's agony; grade, rpm, flags
 skylight-cli endpoints --sort p95 -n 10          # slowest endpoints, last 6h
+skylight-cli endpoints --sort errors --since 24h # routes producing the most error responses
 skylight-cli endpoints -s users#index --since 24h
 skylight-cli endpoints -c staging/web --at 1790000000 --since 1h
 skylight-cli endpoint users#show                 # latency, time breakdown, N+1 queries, distribution
@@ -48,7 +49,7 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 | `--at` | Window start in unix seconds, rounded down to the minute. Default: now minus `--since`. |
 | `-n, --limit` | Rows to show, 1–500 (default 20). Applied after search and sort. |
 | `-s, --search` | Endpoint name filter; `users#index` also matches `UsersController#index` and `Admin::UsersController#index`. |
-| `--sort` | `agony` (default), `count`, `p50`, `p95`, or `p99`, worst first. |
+| `--sort` | `agony` (default), `errors`, `count`, `p50`, `p95`, or `p99`, worst first. |
 | `--full` | Trace: show every event. By default, pass-through middleware is folded and events in under 1% of requests are hidden. |
 | `--min-ms` | Trace: hide events shorter than this many ms on average. |
 | `--latency` | Trace: only requests in a response-time range: `a-b` ms, `fastest` (quickest 30%), or `slowest` (above p95). |
@@ -65,6 +66,9 @@ frontend and checked against the UI:
 - Agony is 0–3, shown as `!`. It is the lowest of how high rpm, p50, and p95 each rank among the window's endpoints,
   so only endpoints that are busy and slow score high.
 - The `ALLOC` flag marks the top 5% of endpoints by allocations, when a request allocates over 10,000 objects.
+- `ERR%` is the route's error rate. Skylight files error responses under the `error` variant
+  (`Name<sk-segment>error</sk-segment>`), so the rate is error requests over all the route's variants, and every
+  variant shows it.
 - The UI estimates percentiles with a q-digest, so an endpoint right at a boundary can differ by one step.
 
 `endpoint` and `trace` also show where time goes: `app / db / view / other`, Skylight's own breakdown, from each
@@ -75,6 +79,8 @@ request in its own code, where the UI suggests custom instrumentation.
 `compare` checks a deploy (latest by default, or `--deploy` with a git sha or deploy id prefix). It compares the
 window before the deploy started with an equal window starting 5 minutes after, to skip the rollout.
 - Only endpoints with 20 requests in both windows are compared (`--min-requests`).
+- `More errors` lists routes whose error rate rose by at least a percentage point, by errors per minute beyond
+  the old rate at the new traffic. More traffic alone does not count as more errors.
 - Endpoints are ranked by request time added per minute (p50 change × rpm), so a busy endpoint that slowed a
   little ranks above a rare one that swung a lot.
 - It notes when the next deploy falls inside the after window.

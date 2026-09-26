@@ -22,8 +22,11 @@ export const DEPLOY_WINDOW = { min: 60, max: 15_552_000, default: 3_888_000 } as
 /** Client-side row limit; upstream always returns the full list. */
 export const LIMIT = { min: 1, max: 500, default: 20 } as const;
 
-/** `agony` ranks like Skylight's endpoint list (ties by requests per minute); the rest sort descending. */
-export const ENDPOINT_SORT_KEYS = ['agony', 'count', 'p50', 'p95', 'p99'] as const;
+/**
+ * `agony` ranks like Skylight's endpoint list (ties by requests per minute); `errors` by error responses per minute
+ * of the route; the rest sort descending.
+ */
+export const ENDPOINT_SORT_KEYS = ['agony', 'errors', 'count', 'p50', 'p95', 'p99'] as const;
 export type EndpointSortKey = (typeof ENDPOINT_SORT_KEYS)[number];
 
 /** Unix seconds, or 'recent' for "now minus duration". */
