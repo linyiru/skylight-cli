@@ -12,6 +12,7 @@ import {
 } from './trace.ts';
 import { digestHistogram, digestQuantile } from './digest.ts';
 import { compareEndpoints, type EndpointChange, type ErrorChange } from './compare.ts';
+import { diffTraceTrees, type TraceEventChange } from './trace-diff.ts';
 import { githubCommitUrl, parseGithubLocation, terminalLink, type GithubLocation } from './github.ts';
 import { WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
 import { rankEndpoints, type RankedEndpoint } from './rank.ts';
@@ -35,7 +36,8 @@ Commands:
                        <name> may omit the <sk-segment> variant, or be a search term
                        that matches exactly one endpoint
   trace <name>         The endpoint's aggregated trace as a tree: when each event starts,
-                       how long it takes, its self time and allocations, and how often it occurs
+                       how long it takes, its self time and allocations, and how often it occurs;
+                       with --deploy, which events changed across that deploy
   trends               App-wide request count and latency over time
   deploys              List deploys for a component
   compare              Endpoints that got slower (or faster) across a deploy
@@ -194,6 +196,35 @@ type Command = (client: SkylightClient, options: Options, componentId: string | 
 /** compare: the after window starts this long after a deploy starts, past the rollout. */
 const DEPLOY_SETTLE_SECONDS = 300;
 
+/** The deploy to compare around and the two windows: shared by `compare` and `trace --deploy`. */
+async function deployWindows(client: SkylightClient, options: Options, componentId: string | undefined) {
+  const { data: deploys } = await client.listDeploys({ componentId, limit: LIMIT.max });
+  const ref = options.deploy?.toLowerCase();
+  const index = ref === undefined ? 0 : deploys.findIndex(d => d.attributes.git_sha?.toLowerCase().startsWith(ref)
+    || d.attributes.deploy_id?.toLowerCase().startsWith(ref) || d.id === options.deploy);
+  const deploy = deploys[index];
+  if (!deploy) throw new UsageError(ref ? `No deploy matching "${options.deploy}" in the last 45 days` : 'No deploys in the last 45 days');
+  const started = Math.floor(Date.parse(deploy.attributes.start_at) / 1000);
+  // `end_at` is when that version stopped reporting (it is "now" for the live deploy), not when the rollout
+  // finished. The after window starts a few minutes past `start_at` instead, skipping mixed old/new traffic.
+  const settled = started + DEPLOY_SETTLE_SECONDS;
+  const available = Math.floor((Date.now() / 1000 - settled) / 60) * 60;
+  let seconds = Math.min(duration(options.since, 7_200), ENDPOINT_WINDOW.max);
+  if (available < seconds) {
+    if (available < 600) {
+      throw new UsageError(`Deploy ${deploy.attributes.git_sha.slice(0, 7)} has ${Math.max(0, Math.round(available / 60))} min of data after it; wait for at least 10`);
+    }
+    seconds = available;
+  }
+  const baseline = options.baseline ?? 'before';
+  if (baseline !== 'before' && baseline !== 'week') throw new UsageError(`Invalid --baseline: ${baseline} (before or week)`);
+  // `week` compares the same hours seven days earlier, so time-of-day and weekday traffic patterns cancel out.
+  const baselineStart = baseline === 'week' ? settled - WEEK_SECONDS : started - seconds;
+  const retained = weekStart(Date.now() / 1000) - 6 * WEEK_SECONDS;
+  if (baselineStart < retained) throw new UsageError(`The baseline window starts before ${time(retained)}, older than Skylight keeps`);
+  return { deploys, index, deploy, started, settled, seconds, baseline, baselineStart };
+}
+
 /** Positional arguments each command takes after its name. */
 const ARGUMENTS: Record<string, string[]> = { endpoint: ['<name>'], trace: ['<name>'] };
 
@@ -203,6 +234,13 @@ async function endpointSummary(client: SkylightClient, options: Options, compone
   const seconds = duration(options.since, ENDPOINT_WINDOW.default);
   // One pinned start, so the search and the summary cover the same window.
   const timestamp = pinnedStart(windowStart(options.at), seconds);
+  const highlight = await resolveEndpoint(client, componentId, query, timestamp, seconds);
+  return { highlight, detail: await client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp, duration: seconds }) };
+}
+
+/** The one endpoint a search term means in a window: exact, the non-error variant of a route, or a unique match. */
+async function resolveEndpoint(client: SkylightClient, componentId: string | undefined, query: string, timestamp: number, seconds: number):
+  Promise<EndpointHighlight> {
   const matches = await client.listEndpoints({ componentId, timestamp, duration: seconds, limit: LIMIT.max, search: query, sortBy: 'count' });
   // Prefer an exact name; then, ignoring the <sk-segment> variant, the one variant that is not `error`.
   const base = (name: string) => name.replace(/<sk-segment>.*<\/sk-segment>$/, '');
@@ -214,7 +252,7 @@ async function endpointSummary(client: SkylightClient, options: Options, compone
     throw new UsageError(matches.total === 0 ? `No endpoint matching "${query}" had requests in this window`
       : `"${query}" matches ${matches.total} endpoints; use the full name:\n${matches.endpoints.slice(0, 10).map(e => `  ${e.name}`).join('\n')}`);
   }
-  return { highlight, detail: await client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp, duration: seconds }) };
+  return highlight;
 }
 
 /** `a-b` in ms, or a preset resolved against the endpoint's latency digest once it is fetched. */
@@ -290,6 +328,66 @@ const DEPLOY_COLUMNS: Column<Deploy>[] = [
   ['START', d => d.attributes?.start_at], ['DEPLOY', d => d.attributes?.deploy_id],
   ['SHA', d => d.attributes?.git_sha?.slice(0, 12)], ['DESCRIPTION', d => d.attributes?.description?.split('\n')[0]]];
 
+/** Self time an event adds to an average request, as `+1.2` / `-0.4`. */
+const signedMs = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}`;
+
+/** `trace <name> --deploy <ref>`: the endpoint's trace before and after a deploy, event by event. */
+async function traceDiff(client: SkylightClient, options: Options, componentId: string | undefined, query: string,
+  { repo, links }: Context): Promise<Output> {
+  const { deploy, started, settled, seconds, baseline, baselineStart } = await deployWindows(client, options, componentId);
+  const highlight = await resolveEndpoint(client, componentId, query, settled, seconds);
+  const [beforeDetail, afterDetail] = await Promise.all([
+    client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp: baselineStart, duration: seconds }),
+    client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp: settled, duration: seconds }),
+  ]);
+  const range = latencyRange(options.latency);
+  const tree = (detail: EndpointSummary) => {
+    const bounds = resolveLatency(range, detail);
+    return buildTraceTree(detail.trace, bounds ? { targets: t => t.start + t.length > bounds[0] && t.start < bounds[1] } : {});
+  };
+  let [before, after]: (TraceTreeNode | LocatedTraceTreeNode | undefined)[] = [tree(beforeDetail), tree(afterDetail)];
+  if (!before || !after) {
+    throw new UsageError(`No trace samples ${!before ? 'before' : 'after'} the deploy for ${highlight.name}; try a longer --since`);
+  }
+  if (!options['no-sources']) {
+    try {
+      const refs = [traceSourceRefs(before), traceSourceRefs(after)];
+      const [names, settledDeploys] = await Promise.all([
+        client.getSourceLocations({ componentId, digests: refs.flatMap(r => r.digests) }),
+        Promise.allSettled([...new Set(refs.flatMap(r => r.deployRefs))].map(id => client.getDeploy({ id }).then(d => [id, d.attributes.git_sha] as const))),
+      ]);
+      const shas = new Map(settledDeploys.flatMap(r => (r.status === 'fulfilled' ? [r.value] : [])));
+      before = locateTraceTree(before, names, shas, repo);
+      after = locateTraceTree(after, names, shas, repo);
+    } catch { /* names are a nicety; the diff stands without them */ }
+  }
+  const diff = diffTraceTrees(before, after);
+  const limit = integer('limit', options.limit) ?? 10;
+  const minMs = options['min-ms'] === undefined ? 0.1 : Number(options['min-ms']);
+  const where = (node: TraceTreeNode | null) => (node ? sourceSuffix(node, links) : '');
+  const occurrence = (node: TraceTreeNode | null) => (node ? `${Math.round(node.occurrence * 100)}%` : '-');
+  const repetitions = (node: TraceTreeNode | null) => (node && node.repetitions > 1 ? ` ×${node.repetitions.toFixed(1)}` : '');
+  const eventLine = (c: TraceEventChange) => `${signedMs(c.deltaMs).padStart(7)}  ${c.beforeMs.toFixed(1).padStart(6)} → ${c.afterMs.toFixed(1).padEnd(6)}`
+    + `  ${occurrence(c.before).padStart(4)} → ${occurrence(c.after).padEnd(4)}  ${c.path.at(-1)}${repetitions(c.after ?? c.before)}${where(c.after ?? c.before)}`;
+  const section = (title: string, changes: TraceEventChange[]) => {
+    const shown = changes.filter(c => Math.abs(c.deltaMs) >= minMs).slice(0, limit);
+    return `\n${title}\n` + (shown.length ? shown.map(eventLine).join('\n') + '\n' : '  (none)\n');
+  };
+  const sha = deploy.attributes.git_sha;
+  const commit = repo && sha ? githubCommitUrl(repo.repo, sha) : null;
+  const text = `Endpoint  ${highlight.name}\n`
+    + `Deploy    ${links && commit ? terminalLink(sha.slice(0, 7), commit) : sha.slice(0, 7)} at ${time(started)}; `
+    + `${baseline === 'week' ? 'baseline the same hours a week earlier' : 'baseline the window before it'}, ${Math.round(seconds / 60)} min each\n`
+    + `Request   ${diff.before.toFixed(1)} → ${diff.after.toFixed(1)} ms average (${signedMs(diff.after - diff.before)}); `
+    + `${before.samples} → ${after.samples} requests\n`
+    + `\n  CHANGE  BEFORE → AFTER   SEEN → SEEN  EVENT (self ms per average request)`
+    + section('Changed', diff.changed)
+    + section('New after the deploy', diff.appeared)
+    + section('Gone after the deploy', diff.disappeared);
+  return { json: { endpoint: highlight.name, deploy, baseline, beforeWindow: { timestamp: baselineStart, duration: seconds },
+    afterWindow: { timestamp: settled, duration: seconds }, ...diff }, text };
+}
+
 const COMMANDS: Record<string, Command> = {
   async auth(client) {
     const components = await client.listComponents();
@@ -333,7 +431,9 @@ const COMMANDS: Record<string, Command> = {
     return { json: { ...detail, highlight }, text };
   },
 
-  async trace(client, options, componentId, [query], { repo, links }) {
+  async trace(client, options, componentId, [query], context) {
+    if (options.deploy !== undefined) return traceDiff(client, options, componentId, query!, context);
+    const { repo, links } = context;
     const range = latencyRange(options.latency);
     const minMs = options['min-ms'] === undefined ? 0 : Number(options['min-ms']);
     if (!Number.isFinite(minMs) || minMs < 0) throw new UsageError(`Invalid --min-ms: ${options['min-ms']}`);
@@ -390,31 +490,8 @@ const COMMANDS: Record<string, Command> = {
   },
 
   async compare(client, options, componentId, _args, { repo, links }) {
-    const { data: deploys } = await client.listDeploys({ componentId, limit: LIMIT.max });
-    const ref = options.deploy?.toLowerCase();
-    const index = ref === undefined ? 0 : deploys.findIndex(d => d.attributes.git_sha?.toLowerCase().startsWith(ref)
-      || d.attributes.deploy_id?.toLowerCase().startsWith(ref) || d.id === options.deploy);
-    const deploy = deploys[index];
-    if (!deploy) throw new UsageError(ref ? `No deploy matching "${options.deploy}" in the last 45 days` : 'No deploys in the last 45 days');
-    const started = Math.floor(Date.parse(deploy.attributes.start_at) / 1000);
-    // `end_at` is when that version stopped reporting (it is "now" for the live deploy), not when the rollout
-    // finished. The after window starts a few minutes past `start_at` instead, skipping mixed old/new traffic.
-    const settled = started + DEPLOY_SETTLE_SECONDS;
-    const available = Math.floor((Date.now() / 1000 - settled) / 60) * 60;
-    let seconds = Math.min(duration(options.since, 7_200), ENDPOINT_WINDOW.max);
-    if (available < seconds) {
-      if (available < 600) {
-        throw new UsageError(`Deploy ${deploy.attributes.git_sha.slice(0, 7)} has ${Math.max(0, Math.round(available / 60))} min of data after it; wait for at least 10`);
-      }
-      seconds = available;
-    }
+    const { deploys, index, deploy, started, settled, seconds, baseline, baselineStart } = await deployWindows(client, options, componentId);
     const minRequests = integer('min-requests', options['min-requests']) ?? 20;
-    const baseline = options.baseline ?? 'before';
-    if (baseline !== 'before' && baseline !== 'week') throw new UsageError(`Invalid --baseline: ${baseline} (before or week)`);
-    // `week` compares the same hours seven days earlier, so time-of-day and weekday traffic patterns cancel out.
-    const baselineStart = baseline === 'week' ? settled - WEEK_SECONDS : started - seconds;
-    const retained = weekStart(Date.now() / 1000) - 6 * WEEK_SECONDS;
-    if (baselineStart < retained) throw new UsageError(`The baseline window starts before ${time(retained)}, older than Skylight keeps`);
     // Full lists: a long window can hold over the 500 endpoints listEndpoints returns.
     const [beforeRaw, afterRaw] = await Promise.all([
       client.getEndpointHighlights({ componentId, timestamp: baselineStart, duration: seconds }),

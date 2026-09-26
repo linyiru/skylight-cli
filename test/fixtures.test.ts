@@ -419,6 +419,30 @@ describe('CLI on recorded responses', () => {
     assert.equal((await cli(['compare', '--baseline', 'month'])).code, 2);
   });
 
+  test('trace --deploy fetches the endpoint summary for both windows and diffs them', async () => {
+    const deploys = fixture('deploys.ok').response.body as { data: { attributes: { start_at: string; git_sha: string } }[] };
+    const target = deploys.data[1]!.attributes;
+    const started = Math.floor(Date.parse(target.start_at) / 1000);
+    const summary = fixture('summary.n-plus-one').response.body as EndpointSummary;
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: EndpointHighlight[] };
+    const windows: number[] = [];
+    server.use(replay('auth.ok'), replay('apps.ok'), replay('deploys.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
+        endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name, count: 100 }] })),
+      http.post(`${dataBase}/endpoints/:name/summary`, async ({ request }) => {
+        windows.push((await request.json() as { timestamp: number }).timestamp);
+        return fixtureResponse(fixture('summary.n-plus-one'));
+      }));
+    const { code, stdout } = await cli(['trace', summary.endpoint.name, '--deploy', target.git_sha.slice(0, 7), '--since', '1h', '--no-sources']);
+    assert.equal(code, 0, stdout);
+    const minute = (t: number) => Math.floor(t / 60) * 60;
+    // Before: the hour up to the deploy's start; after: from 5 minutes past it.
+    assert.deepEqual(windows.sort(), [minute(started - 3_600), minute(started + 300)]);
+    // The same recorded trace on both sides: nothing changed.
+    assert.match(stdout, /^Request +([\d.]+) → \1 ms average \(\+0\.0\)/m);
+    assert.match(stdout, /^Changed\n  \(none\)$/m);
+  });
+
   test('an upstream 401 is exit code 1 with a token hint', async () => {
     server.use(replay('auth.invalid-token'));
     const { code, stderr } = await cli(['auth']);

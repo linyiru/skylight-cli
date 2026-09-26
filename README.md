@@ -37,6 +37,7 @@ skylight-cli deploys -n 5                        # most recent first
 skylight-cli compare                             # what the latest deploy slowed down (2h before vs after)
 skylight-cli compare --deploy 07b0150 --since 1h
 skylight-cli compare --baseline week             # vs the same hours last week: no time-of-day effects
+skylight-cli trace graphql:Checkout --deploy 07b0150  # which events (queries, calls) changed across it
 skylight-cli report                              # last week vs the one before, like Skylight's Trends email
 skylight-cli report --week 2026-09-07 --weeks 4
 skylight-cli endpoints --json | jq '.endpoints[0]'
@@ -100,6 +101,15 @@ weekly percentile. The thresholds are ours:
 - an endpoint needs 100 requests in each week;
 - slower or faster means at least 10%;
 - a frog boil rose in all but one week and at least 20% overall.
+
+`trace <name> --deploy <ref>` takes the same windows as `compare` (`--since`, `--baseline`) and diffs the
+endpoint's trace event by event.
+- It measures the self time each event adds to an average request (self time × the share of requests that run
+  it). These add up to the average request time, so the changes explain the endpoint's slowdown.
+- It lists what changed, what is new after the deploy (e.g. a query that now runs in most requests), and what is
+  gone, each with its `file:line`.
+- Events are matched by their path from the root. Same-named siblings (several `SELECT FROM users`) are paired in
+  start-time order, which can mispair them if their order changed.
 
 `endpoint <name>` and `trace <name>` accept a name without its `<sk-segment>` variant (the non-`error` variant is
 used), or a search term that matches exactly one endpoint; otherwise they list candidates.

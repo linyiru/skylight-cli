@@ -23,3 +23,5 @@ export { WEEK_SECONDS, aggregateAppSeries, aggregateEndpointDays, weekStart, wee
 export type { FrogBoil, PercentileReport, WeekData, WeekStats, WeeklyChange, WeeklyReport, WeeklyReportOptions } from './weekly.ts';
 export { githubCommitUrl, githubFileUrl, parseGithubLocation, parseGithubRepo, terminalLink } from './github.ts';
 export type { GithubLocation } from './github.ts';
+export { diffTraceTrees } from './trace-diff.ts';
+export type { TraceDiff, TraceEventChange } from './trace-diff.ts';

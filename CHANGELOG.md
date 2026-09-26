@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `--sort errors`.
   - `compare` lists routes with more or fewer errors after a deploy, by errors per minute beyond the old rate.
   - `splitEndpointName()`; `RankedEndpoint` gains `baseName`, `segment`, `errorRate`, and `errorsPerMinute`.
+- `trace <name> --deploy <ref>`: the endpoint's trace across a deploy, event by event. It reports the self time
+  each event adds to an average request (these sum to the request's change), plus new and gone events with their
+  `file:line`. It uses the same windows as `compare`. `diffTraceTrees()`.
 
 ## [0.8.0] - 2026-09-25
 
