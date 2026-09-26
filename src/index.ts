@@ -16,4 +16,6 @@ export type {
 export { GRADE_THRESHOLDS, gradeFor, rankEndpoints } from './rank.ts';
 export { digestHistogram, digestQuantile } from './digest.ts';
 export type { HistogramBucket } from './digest.ts';
+export { compareEndpoints } from './compare.ts';
+export type { EndpointChange, WindowComparison } from './compare.ts';
 export type { Grade, RankedEndpoint } from './rank.ts';

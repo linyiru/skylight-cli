@@ -11,6 +11,7 @@ import {
   traceSourceRefs, type LocatedTraceTreeNode, type TraceTreeNode,
 } from './trace.ts';
 import { digestHistogram, digestQuantile } from './digest.ts';
+import { compareEndpoints, type EndpointChange } from './compare.ts';
 import type { RankedEndpoint } from './rank.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
 
@@ -35,6 +36,7 @@ Commands:
                        how long it takes, its self time and allocations, and how often it occurs
   trends               App-wide request count and latency over time
   deploys              List deploys for a component
+  compare              Endpoints that got slower (or faster) across a deploy
 
 Options:
   -c, --component <c>  Component guid, "environment/name", or unique name
@@ -55,6 +57,10 @@ Options:
       --latency <r>    trace: only requests in a response-time range: a-b (ms),
                        fastest (quickest 30%), or slowest (above p95)
       --no-sources     trace: skip resolving file:line and gem names (saves requests)
+      --deploy <ref>   compare: git sha or deploy id prefix (default: the latest deploy);
+                       --since sets each side's window (default 2h, max 24h); the after
+                       window starts 5 min into the deploy, past the rollout
+      --min-requests <n>  compare: requests needed in both windows (default 20)
       --json           Print JSON instead of a table
   -h, --help           Show this help
   -v, --version        Show version
@@ -75,6 +81,8 @@ const OPTIONS = {
   'min-ms': { type: 'string' },
   latency: { type: 'string' },
   'no-sources': { type: 'boolean' },
+  deploy: { type: 'string' },
+  'min-requests': { type: 'string' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
@@ -160,6 +168,9 @@ function inspectionText(inspection: Inspection): string {
 
 interface Output { json: unknown; text: string }
 type Command = (client: SkylightClient, options: Options, componentId: string | undefined, args: string[]) => Promise<Output>;
+
+/** compare: the after window starts this long after a deploy starts, past the rollout. */
+const DEPLOY_SETTLE_SECONDS = 300;
 
 /** Positional arguments each command takes after its name. */
 const ARGUMENTS: Record<string, string[]> = { endpoint: ['<name>'], trace: ['<name>'] };
@@ -344,6 +355,57 @@ const COMMANDS: Record<string, Command> = {
     const header = `Window ${time(series.timestamp)} + ${series.duration}s, step ${series.step}s; ${total} requests\n`;
     return { json: series, text: header + table(rows, [['TIME (UTC)', r => minute(r.at)], ['COUNT', r => r.count],
       ['P50', r => r.p50], ['P95', r => r.p95], ['P99', r => r.p99], ['MAX', r => r.max]]) };
+  },
+
+  async compare(client, options, componentId) {
+    const { data: deploys } = await client.listDeploys({ componentId, limit: LIMIT.max });
+    const ref = options.deploy?.toLowerCase();
+    const index = ref === undefined ? 0 : deploys.findIndex(d => d.attributes.git_sha?.toLowerCase().startsWith(ref)
+      || d.attributes.deploy_id?.toLowerCase().startsWith(ref) || d.id === options.deploy);
+    const deploy = deploys[index];
+    if (!deploy) throw new UsageError(ref ? `No deploy matching "${options.deploy}" in the last 45 days` : 'No deploys in the last 45 days');
+    const started = Math.floor(Date.parse(deploy.attributes.start_at) / 1000);
+    // `end_at` is when that version stopped reporting (it is "now" for the live deploy), not when the rollout
+    // finished. The after window starts a few minutes past `start_at` instead, skipping mixed old/new traffic.
+    const settled = started + DEPLOY_SETTLE_SECONDS;
+    const available = Math.floor((Date.now() / 1000 - settled) / 60) * 60;
+    let seconds = Math.min(duration(options.since, 7_200), ENDPOINT_WINDOW.max);
+    if (available < seconds) {
+      if (available < 600) {
+        throw new UsageError(`Deploy ${deploy.attributes.git_sha.slice(0, 7)} has ${Math.max(0, Math.round(available / 60))} min of data after it; wait for at least 10`);
+      }
+      seconds = available;
+    }
+    const minRequests = integer('min-requests', options['min-requests']) ?? 20;
+    const [before, after] = await Promise.all([
+      client.listEndpoints({ componentId, timestamp: started - seconds, duration: seconds, limit: LIMIT.max, sortBy: 'count' }),
+      client.listEndpoints({ componentId, timestamp: settled, duration: seconds, limit: LIMIT.max, sortBy: 'count' }),
+    ]);
+    const result = compareEndpoints(before.endpoints, after.endpoints, { minRequests });
+    const limit = integer('limit', options.limit) ?? LIMIT.default;
+    // Deploys are newest first: the one just before this index happened after it.
+    const next = index > 0 ? deploys[index - 1] : undefined;
+    const overlapping = next && Date.parse(next.attributes.start_at) / 1000 < after.timestamp + after.duration;
+    const hhmm = (at: number) => minute(at).slice(11);
+    const percent = (change: number | null) => (change === null ? '' : ` (${change >= 0 ? '+' : ''}${Math.round(change * 100)}%)`);
+    const columns: Column<EndpointChange>[] = [
+      ['MS/MIN', c => `${c.impactMsPerMinute >= 0 ? '+' : ''}${Math.round(c.impactMsPerMinute)}`],
+      ['RPM', c => `${c.before.rpm.toFixed(1)}→${c.after.rpm.toFixed(1)}`],
+      ['P50', c => `${c.before.latencyP50}→${c.after.latencyP50}${percent(c.p50Change)}`],
+      ['P95', c => `${c.before.latencyP95}→${c.after.latencyP95}${percent(c.p95Change)}`],
+      ['ENDPOINT', c => c.name]];
+    const slower = result.changed.filter(c => c.impactMsPerMinute > 0).slice(0, limit);
+    const faster = result.changed.filter(c => c.impactMsPerMinute < 0).reverse().slice(0, Math.min(5, limit));
+    const text = `Deploy    ${deploy.attributes.git_sha.slice(0, 7)} at ${time(started)}  ${oneLine(deploy.attributes.description, 70)}\n`
+      + `Windows   before ${hhmm(before.timestamp)}-${hhmm(before.timestamp + before.duration)}, after ${hhmm(after.timestamp)}-${hhmm(after.timestamp + after.duration)} UTC (${Math.round(seconds / 60)} min each)\n`
+      + `Compared  ${result.changed.length} endpoints with at least ${minRequests} requests in both; `
+      + `${result.appeared.length} appeared, ${result.disappeared.length} disappeared\n`
+      + (overlapping ? `Note      the next deploy (${next.attributes.git_sha.slice(0, 7)} at ${time(Date.parse(next.attributes.start_at) / 1000)}) falls inside the after window\n` : '')
+      + `\nSlower (request time added per minute)\n${table(slower, columns)}`
+      + `\nFaster\n${table(faster, columns)}`
+      + (result.appeared.length ? `\nAppeared  ${result.appeared.slice(0, 5).map(e => e.name).join(', ')}${result.appeared.length > 5 ? ', …' : ''}\n` : '');
+    return { json: { deploy, before: { timestamp: before.timestamp, duration: before.duration },
+      after: { timestamp: after.timestamp, duration: after.duration }, minRequests, ...result }, text };
   },
 
   async deploys(client, options, componentId) {

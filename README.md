@@ -31,6 +31,8 @@ skylight-cli trace users#show --latency slowest  # only requests above p95; or f
 skylight-cli trends --since 24h                  # app-wide count and p50/p95/p99, 10-minute buckets
 skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel requests
 skylight-cli deploys -n 5                        # most recent first
+skylight-cli compare                             # what the latest deploy slowed down (2h before vs after)
+skylight-cli compare --deploy 07b0150 --since 1h
 skylight-cli endpoints --json | jq '.endpoints[0]'
 ```
 
@@ -63,6 +65,14 @@ frontend and checked against the UI:
 event's self time. `endpoint` adds a response-time histogram from the latency digest. In a trace, `×N` marks events
 that repeat within a request (e.g. N+1 queries). A `Hint` line appears when app code spends over a quarter of the
 request in its own code, where the UI suggests custom instrumentation.
+
+`compare` checks a deploy (latest by default, or `--deploy` with a git sha or deploy id prefix). It compares the
+window before the deploy started with an equal window starting 5 minutes after, to skip the rollout.
+- Only endpoints with 20 requests in both windows are compared (`--min-requests`).
+- Endpoints are ranked by request time added per minute (p50 change × rpm), so a busy endpoint that slowed a
+  little ranks above a rare one that swung a lot.
+- It notes when the next deploy falls inside the after window.
+- Adjacent windows can differ in traffic by time of day; read small changes with that in mind.
 
 `endpoint <name>` and `trace <name>` accept a name without its `<sk-segment>` variant (the non-`error` variant is
 used), or a search term that matches exactly one endpoint; otherwise they list candidates.

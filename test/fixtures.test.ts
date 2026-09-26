@@ -11,7 +11,7 @@ import { SkylightClient } from '../src/skylight-client.ts';
 import { SkylightError } from '../src/errors.ts';
 import { main } from '../src/cli.ts';
 import { SOURCE_LOCATION_BATCH, TREND_MAX_SECONDS_PER_REQUEST } from '../src/spec.ts';
-import type { EndpointSummary, TrendSeries, WireAppsResponse } from '../src/types.ts';
+import type { EndpointHighlight, EndpointSummary, TrendSeries, WireAppsResponse } from '../src/types.ts';
 import { FIXTURE_TOKENS, fixture, fixtureResponse, replay } from './support/msw.ts';
 
 const server = setupServer();
@@ -289,6 +289,32 @@ describe('CLI on recorded responses', () => {
     assert.equal(events.length, summary.trace.nodes.length);
     assert.match(events[0]!, /app\.rack\.request$/);
     assert.match(events[1]!, /[├└]─ /);
+  });
+
+  test('compare splits windows at the deploy start and reports what slowed down', async () => {
+    const deploys = fixture('deploys.ok').response.body as { data: { attributes: { start_at: string; git_sha: string } }[] };
+    // The second deploy is well in the past, so both windows have data.
+    const target = deploys.data[1]!.attributes;
+    const start = Math.floor(Date.parse(target.start_at) / 1000);
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: EndpointHighlight[] };
+    const windows: number[] = [];
+    server.use(replay('auth.ok'), replay('apps.ok'), replay('deploys.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, async ({ request }) => {
+        const { timestamp, duration } = await request.json() as { timestamp: number; duration: number };
+        windows.push(timestamp);
+        // After the deploy, every endpoint takes twice as long.
+        const factor = timestamp >= start ? 2 : 1;
+        return Response.json({ timestamp, duration, endpoints: highlights.endpoints.map(e => ({ ...e, count: 100,
+          latencyP50: e.latencyP50 * factor + 1, latencyP95: e.latencyP95 * factor + 1 })) });
+      }));
+    const { code, stdout } = await cli(['compare', '--deploy', target.git_sha.slice(0, 7), '--since', '1h']);
+    assert.equal(code, 0, stdout);
+    // Windows are aligned down to whole minutes.
+    const minute = (t: number) => Math.floor(t / 60) * 60;
+    assert.deepEqual(windows.sort(), [minute(start - 3_600), minute(start + 300)]);
+    assert.match(stdout, new RegExp(`^Deploy +${target.git_sha.slice(0, 7)} at `, 'm'));
+    assert.match(stdout, /^Compared +\d+ endpoints with at least 20 requests in both; 0 appeared, 0 disappeared$/m);
+    assert.match(stdout, /^\+\d+ +[\d.]+→[\d.]+ +\d+→\d+ \(\+\d+%\)/m);
   });
 
   test('an upstream 401 is exit code 1 with a token hint', async () => {

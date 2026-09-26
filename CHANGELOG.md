@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the latency digest. `timeBreakdown()`, `digestQuantile()`, `digestHistogram()`.
 - `trace` marks events that repeat within a request (`×N`, e.g. N+1 queries) and hints where app code needs custom
   instrumentation. `--latency fastest` and `--latency slowest` select the quickest 30% or requests above p95.
+- `compare` command and `compareEndpoints()`: endpoints that got slower or faster across a deploy, ranked by request
+  time added per minute, with endpoints that appeared or disappeared.
 - `TraceSpan` fields are all named (repetitions, max repetitions, variance), following Skylight's frontend.
 
 ### Fixed
