@@ -18,6 +18,9 @@ export interface TraceTreeNode {
   /** Duration minus the children's durations. */
   selfMs: number;
   allocations: number;
+  /** Times the event repeats per request (e.g. an N+1 query), averaged; and the most seen. */
+  repetitions: number;
+  maxRepetitions: number;
   /** `[deploy ref, source location id]` pairs, as shown in the UI as git sha and file:line. */
   sources: [deployRef: string, sourceLocationId: string | null][];
   children: TraceTreeNode[];
@@ -28,7 +31,7 @@ export interface TraceTreeOptions {
   targets?: (target: TraceTarget, index: number) => boolean;
 }
 
-interface Sample { start: number; duration: number; allocations: number; weight: number }
+interface Sample { start: number; duration: number; allocations: number; repetitions: number; maxRepetitions: number; weight: number }
 
 const allocationsOf = (span: TraceSpan) =>
   span[7]?.find((annotation): annotation is [1, number, number, number] => annotation[0] === 1)?.[3] ?? 0;
@@ -58,11 +61,12 @@ export function buildTraceTree(trace: { nodes: TraceNode[]; targets: TraceTarget
   const visit = (index: number, parentStarts: Map<number, number>) => {
     const starts = new Map<number, number>();
     for (const span of nodes[index]![4] ?? []) {
-      const [target, samples, , , start, duration] = span;
+      const [target, samples, repetitions, maxRepetitions, start, duration] = span;
       if (!included.has(target)) continue;
       const absolute = (parentStarts.get(target) ?? 0) + start;
       starts.set(target, absolute);
-      perTarget[index]!.set(target, { start: absolute, duration, allocations: allocationsOf(span), weight: samples });
+      perTarget[index]!.set(target, { start: absolute, duration, allocations: allocationsOf(span), repetitions,
+        maxRepetitions, weight: samples });
     }
     for (const child of children[index]!) visit(child, starts);
   };
@@ -75,8 +79,11 @@ export function buildTraceTree(trace: { nodes: TraceNode[]; targets: TraceTarget
     const weight = samples.reduce((sum, [, s]) => sum + s.weight, 0);
     const mean = (value: (target: number, sample: Sample) => number) =>
       weight ? samples.reduce((sum, [target, s]) => sum + value(target, s) * s.weight, 0) / weight : 0;
-    const childrenDuration = (target: number) =>
-      children[index]!.reduce((sum, child) => sum + (perTarget[child]!.get(target)?.duration ?? 0), 0);
+    // A child may run in only some of this bucket's requests: weight its duration by that share.
+    const childrenDuration = (target: number, own: Sample) => children[index]!.reduce((sum, child) => {
+      const sample = perTarget[child]!.get(target);
+      return sample && own.weight ? sum + sample.duration * Math.min(1, sample.weight / own.weight) : sum;
+    }, 0);
     const sources = new Map<string, [string, string | null]>();
     for (const span of spans ?? []) for (const pair of sourcesOf(span)) sources.set(pair.join('\0'), pair);
     return {
@@ -85,8 +92,10 @@ export function buildTraceTree(trace: { nodes: TraceNode[]; targets: TraceTarget
       samples: weight,
       startMs: mean((_, s) => s.start),
       durationMs: mean((_, s) => s.duration),
-      selfMs: mean((target, s) => Math.max(0, s.duration - childrenDuration(target))),
+      selfMs: mean((target, s) => Math.max(0, s.duration - childrenDuration(target, s))),
       allocations: mean((_, s) => s.allocations),
+      repetitions: mean((_, s) => s.repetitions),
+      maxRepetitions: samples.reduce((max, [, s]) => Math.max(max, s.maxRepetitions), 0),
       sources: [...sources.values()],
       children: children[index]!.filter(child => perTarget[child]!.size > 0).map(build)
         .sort((a, b) => a.startMs - b.startMs),
@@ -180,4 +189,40 @@ export function locateTraceTree(node: TraceTreeNode, names: ReadonlyMap<string, 
     .sort((a, b) => Number(b.inApp) - Number(a.inApp) || Number(a.name === null) - Number(b.name === null)
       || (a.name ?? '').localeCompare(b.name ?? '') || (a.line ?? 0) - (b.line ?? 0));
   return { ...node, locations, children: node.children.map(child => locateTraceTree(child, names, gitShas)) };
+}
+
+/** Skylight's time breakdown groups; everything else (rack, noise, agent, api, …) counts as `other`. */
+export const BREAKDOWN_GROUPS = ['app', 'db', 'view'] as const;
+export type Breakdown = Record<(typeof BREAKDOWN_GROUPS)[number] | 'other', number>;
+
+/**
+ * Share of the request's time spent in each group, in whole percent, like the UI's App / DB / View / Other bar:
+ * self time per event, weighted by how many requests include it, summed by the category's first segment.
+ * Pass the uncondensed tree, or folded middleware drops out.
+ */
+export function timeBreakdown(node: TraceTreeNode): Breakdown {
+  const sums = new Map<string, number>();
+  let total = 0;
+  const visit = (current: TraceTreeNode) => {
+    const group = current.category.split('.')[0]!;
+    const weighted = current.selfMs * current.samples;
+    sums.set(group, (sums.get(group) ?? 0) + weighted);
+    total += weighted;
+    current.children.forEach(visit);
+  };
+  visit(node);
+  const result: Breakdown = { app: 0, db: 0, view: 0, other: 0 };
+  for (const [group, sum] of sums) {
+    const percent = total ? Math.round((sum / total) * 100) : 0;
+    if ((BREAKDOWN_GROUPS as readonly string[]).includes(group)) result[group as keyof Breakdown] = percent;
+    else result.other += percent;
+  }
+  return result;
+}
+
+/** App events with more than a quarter of the request as self time: the UI suggests custom instrumentation there. */
+export function needsInstrumentation(node: TraceTreeNode, root: TraceTreeNode = node): TraceTreeNode[] {
+  const own = node.category.startsWith('app') && root.durationMs > 0
+    && (node.selfMs * node.samples) / (root.durationMs * root.samples) > 0.25 ? [node] : [];
+  return [...own, ...node.children.flatMap(child => needsInstrumentation(child, root))];
 }

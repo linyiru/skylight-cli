@@ -1,4 +1,5 @@
 import { SkylightError } from './errors.ts';
+import { rankEndpoints, type RankedEndpoint } from './rank.ts';
 import {
   DEPLOY_WINDOW, ENDPOINT_WINDOW, LIMIT, SOURCE_LOCATION_BATCH, TREND_WINDOW, assertLimit, defaultTrendStep, isEndpointSortKey, timeWindow,
   trendRanges, type EndpointSortKey, type TrendStep, type WindowStart,
@@ -11,8 +12,13 @@ import type {
 
 const WEB_URL = 'https://www.skylight.io';
 
-const SORT_FIELDS = { count: 'count', p50: 'latencyP50', p95: 'latencyP95', p99: 'latencyP99' } as const satisfies
-  Record<EndpointSortKey, keyof EndpointHighlight>;
+const byDescending = (field: keyof RankedEndpoint) => (a: RankedEndpoint, b: RankedEndpoint) =>
+  (Number(b[field]) || 0) - (Number(a[field]) || 0);
+
+const SORTS: Record<EndpointSortKey, (a: RankedEndpoint, b: RankedEndpoint) => number> = {
+  agony: (a, b) => b.agony - a.agony || b.rpm - a.rpm,
+  count: byDescending('count'), p50: byDescending('latencyP50'), p95: byDescending('latencyP95'), p99: byDescending('latencyP99'),
+};
 
 type AnyToken = McpToken | SessionToken | ClientApiToken;
 
@@ -212,11 +218,9 @@ export class SkylightClient {
       const { base, token } = await this.#dataAccess(componentId);
       const result = await this.#request<Partial<WireEndpointHighlightsResponse>>(`${base}/endpoint_highlights`, token, window);
       if (!Array.isArray(result?.endpoints)) throw new SkylightError('INVALID_ENDPOINTS_RESPONSE');
-      let endpoints = result.endpoints.filter(matches);
-      if (sortBy !== undefined) {
-        const field = SORT_FIELDS[sortBy];
-        endpoints = endpoints.toSorted((a, b) => (Number(b?.[field]) || 0) - (Number(a?.[field]) || 0));
-      }
+      // Score against the whole window first; search and limit only choose what to show.
+      let endpoints = rankEndpoints(result.endpoints, result.duration ?? window.duration).filter(matches);
+      if (sortBy !== undefined) endpoints = endpoints.toSorted(SORTS[sortBy]);
       return { timestamp: result.timestamp ?? window.timestamp, duration: result.duration ?? window.duration,
         total: endpoints.length, endpoints: endpoints.slice(0, limit) };
     });

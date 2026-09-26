@@ -20,12 +20,13 @@ skylight-cli auth
 
 ```sh
 skylight-cli components                          # guid, environment, name
+skylight-cli endpoints                           # worst first, by Skylight's agony; grade, rpm, flags
 skylight-cli endpoints --sort p95 -n 10          # slowest endpoints, last 6h
 skylight-cli endpoints -s users#index --since 24h
 skylight-cli endpoints -c staging/web --at 1790000000 --since 1h
-skylight-cli endpoint users#show                 # latency + N+1 queries for one endpoint
+skylight-cli endpoint users#show                 # latency, time breakdown, N+1 queries, distribution
 skylight-cli trace graphql:CoursePage            # aggregated trace tree: start, duration, self time, allocations
-skylight-cli trace users#show --latency 500-5000 # only slow requests; --full shows every event
+skylight-cli trace users#show --latency slowest  # only requests above p95; or fastest, or 500-5000
                                                  # each event shows its app file:line, or [gem]
 skylight-cli trends --since 24h                  # app-wide count and p50/p95/p99, 10-minute buckets
 skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel requests
@@ -40,15 +41,28 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 | `--at` | Window start in unix seconds, rounded down to the minute. Default: now minus `--since`. |
 | `-n, --limit` | Rows to show, 1–500 (default 20). Applied after search and sort. |
 | `-s, --search` | Endpoint name filter; `users#index` also matches `UsersController#index` and `Admin::UsersController#index`. |
-| `--sort` | `count`, `p50`, `p95`, or `p99` (descending). Default: Skylight's order. |
+| `--sort` | `agony` (default), `count`, `p50`, `p95`, or `p99`, worst first. |
 | `--full` | Trace: show every event. By default, pass-through middleware is folded and events in under 1% of requests are hidden. |
 | `--min-ms` | Trace: hide events shorter than this many ms on average. |
-| `--latency` | Trace: only requests whose response time is in `[a, b)` ms, e.g. `500-5000`. |
+| `--latency` | Trace: only requests in a response-time range: `a-b` ms, `fastest` (quickest 30%), or `slowest` (above p95). |
 | `--no-sources` | Trace: skip resolving source locations (two extra requests). |
 | `--step` | Trends bucket: `60`, `600`, or `3600` seconds. Default: 60 up to 2h, 600 up to 24h, else 3600. |
 | `--json` | Machine-readable output. |
 
 Exit codes: `0` success, `1` API or network failure, `2` usage error.
+
+`endpoints` scores every endpoint the way Skylight's endpoint list does. The scoring was read from Skylight's
+frontend and checked against the UI:
+- The grade comes from p50, from A+ (≤ 3 ms) to F (over 709 ms).
+- Agony is 0–3, shown as `!`. It is the lowest of how high rpm, p50, and p95 each rank among the window's endpoints,
+  so only endpoints that are busy and slow score high.
+- The `ALLOC` flag marks the top 5% of endpoints by allocations, when a request allocates over 10,000 objects.
+- The UI estimates percentiles with a q-digest, so an endpoint right at a boundary can differ by one step.
+
+`endpoint` and `trace` also show where time goes: `app / db / view / other`, Skylight's own breakdown, from each
+event's self time. `endpoint` adds a response-time histogram from the latency digest. In a trace, `×N` marks events
+that repeat within a request (e.g. N+1 queries). A `Hint` line appears when app code spends over a quarter of the
+request in its own code, where the UI suggests custom instrumentation.
 
 `endpoint <name>` and `trace <name>` accept a name without its `<sk-segment>` variant (the non-`error` variant is
 used), or a search term that matches exactly one endpoint; otherwise they list candidates.
@@ -107,7 +121,7 @@ or apps issues fresh ones.
   Longer windows take several requests.
 - Summary: the name keeps its `<sk-segment>…</sk-segment>` suffix and must be percent-encoded. An unknown name
   returns 200 with `count: 0`, not 404.
-- Trace, decoded 2026-09-25 by comparing responses with the Skylight UI (types: `TraceNode`, `TraceSpan`):
+- Trace, decoded 2026-09-25 from the Skylight UI and its frontend code (types: `TraceNode`, `TraceSpan`):
   - `trace.targets` are 10 ms latency buckets that samples were drawn from.
   - Each node is `[parent index, category, title, description, spans]`; the description is the SQL for queries.
   - Each span holds one node's timing within one target: start and duration in ms, relative to the parent.

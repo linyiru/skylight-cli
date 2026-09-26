@@ -1,4 +1,5 @@
 /** Wire formats observed on 2026-09-25; not a published API contract. */
+import type { RankedEndpoint } from './rank.ts';
 
 declare const brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [brand]: B };
@@ -100,7 +101,8 @@ export interface EndpointList {
   duration: number;
   /** Matching endpoints before `limit`. */
   total: number;
-  endpoints: EndpointHighlight[];
+  /** With Skylight's grade, agony, popularity, and rpm, scored against every endpoint in the window. */
+  endpoints: RankedEndpoint[];
 }
 
 export interface DeployList {
@@ -157,24 +159,24 @@ export interface TraceTarget {
   requests: unknown[];
 }
 
-/** `[1, samples, offset from the parent's allocations, allocations]` or `[2, [[deploy ref, source location id]]]`. */
+/** `[1, count, offset from the parent's allocations, allocations]` or `[2, [[deploy ref, source]]]`. */
 export type TraceAnnotation =
-  | [kind: 1, samples: number, allocationOffset: number, allocations: number]
-  | [kind: 2, sources: [deployRef: string, sourceLocationId: string | null][]];
+  | [kind: 1, count: number, allocationOffset: number, allocations: number]
+  | [kind: 2, sources: [deployRef: string, source: string | null][]];
 
 /**
- * One node's timing within one target bucket; averages when `samples` > 1. Offsets are relative to the parent
- * node. Decoded 2026-09-25 by comparing API responses with the Skylight UI; the unnamed fields are still unknown.
+ * One node's timing within one target bucket, averaged over `count` requests. Field names follow Skylight's own
+ * frontend (`TraceSpan` in direwolf). Times are ms; the start is relative to the parent node.
  */
 export type TraceSpan = [
   target: number,
-  samples: number,
-  unknown2: number,
-  unknown3: number,
+  count: number,
+  /** Times the event repeats per request, on average (e.g. an N+1 query); 0 or 1 for a single occurrence. */
+  repetitions: number,
+  maxRepetitions: number,
   startMs: number,
   durationMs: number,
-  /** Non-zero only when samples > 1. */
-  unknown6: number,
+  variance: number,
   annotations: TraceAnnotation[],
 ];
 

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildTraceTree, condenseTraceTree, countTraceNodes, locateTraceTree, parseTraceSource, traceSourceRefs,
+  buildTraceTree, condenseTraceTree, countTraceNodes, locateTraceTree, needsInstrumentation, parseTraceSource,
+  timeBreakdown, traceSourceRefs,
 } from '../src/trace.ts';
 import type { TraceNode, TraceSpan, TraceTarget } from '../src/types.ts';
 
@@ -79,4 +80,40 @@ test('locates nodes: app code first, synthetic events dropped, unknown digests k
   assert.deepEqual(located.locations, []);
   assert.deepEqual(located.children[0]!.locations.map(l => [l.name, l.line, l.inApp, l.gitSha]), [
     ['app/models/user.rb', 12, true, 'abcdef1234'], [null, 3, true, 'abcdef1234'], ['activerecord', null, false, 'abcdef1234']]);
+});
+
+test('self time subtracts a child only for the share of requests that run it', () => {
+  // 4 requests of 100 ms; a 40 ms query runs in 1 of them. Per request the parent spends 100 - 40/4 = 90 ms itself.
+  const tree = buildTraceTree({ targets: [{ start: 100, length: 10, requests: [] }], nodes: [
+    [null, 'app.controller.request', 'C#a', null, [span(0, 4, 0, 100)]],
+    [0, 'db.sql.query', 'SELECT', null, [span(0, 1, 10, 40)]],
+  ] })!;
+  assert.equal(tree.selfMs, 90);
+  assert.equal(tree.children[0]!.occurrence, 0.25);
+});
+
+test('time breakdown sums self time by category group, weighted by requests', () => {
+  const tree = buildTraceTree({ targets: [{ start: 100, length: 10, requests: [] }], nodes: [
+    [null, 'app.rack.request', null, null, [span(0, 4, 0, 100)]],
+    [0, 'rack.middleware', 'Rack::Cors', null, [span(0, 4, 0, 100)]],
+    [1, 'app.controller.request', 'C#a', null, [span(0, 4, 0, 90)]],
+    [2, 'db.sql.query', 'SELECT', null, [span(0, 4, 10, 40)]],
+    [2, 'view.render.template', 'show', null, [span(0, 2, 60, 20)]],
+  ] })!;
+  // Self per request: rack 10, controller 90 - 40 - 20/2 = 40, db 40, view 20 × 2/4 = 10.
+  assert.deepEqual(timeBreakdown(tree), { app: 40, db: 40, view: 10, other: 10 });
+});
+
+test('repetitions are averaged and the maximum kept; slow app code is flagged for instrumentation', () => {
+  const repeated = (count: number, reps: number, max: number): TraceSpan => [0, count, reps, max, 0, 50, 0, []];
+  const tree = buildTraceTree({ targets: [{ start: 50, length: 10, requests: [] }], nodes: [
+    [null, 'app.controller.request', 'C#a', null, [repeated(2, 0, 0)]],
+    [0, 'db.sql.query', 'SELECT', null, [repeated(2, 3, 7)]],
+  ] })!;
+  assert.equal(tree.children[0]!.repetitions, 3);
+  assert.equal(tree.children[0]!.maxRepetitions, 7);
+  // The controller's own code is 0 ms here, so nothing to instrument; a root doing everything itself is flagged.
+  assert.deepEqual(needsInstrumentation(tree), []);
+  assert.equal(needsInstrumentation(buildTraceTree({ targets: tree ? [{ start: 50, length: 10, requests: [] }] : [],
+    nodes: [[null, 'app.controller.request', 'C#a', null, [repeated(2, 0, 0)]]] })!).length, 1);
 });

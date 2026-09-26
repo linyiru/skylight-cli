@@ -7,9 +7,11 @@ import {
   type EndpointSortKey, type TrendStep, type WindowStart,
 } from './spec.ts';
 import {
-  buildTraceTree, condenseTraceTree, countTraceNodes, locateTraceTree, traceSourceRefs, type LocatedTraceTreeNode,
-  type TraceTreeNode,
+  buildTraceTree, condenseTraceTree, countTraceNodes, locateTraceTree, needsInstrumentation, timeBreakdown,
+  traceSourceRefs, type LocatedTraceTreeNode, type TraceTreeNode,
 } from './trace.ts';
+import { digestHistogram, digestQuantile } from './digest.ts';
+import type { RankedEndpoint } from './rank.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -44,13 +46,14 @@ Options:
       --at <unix>      Window start in unix seconds (default: now minus --since)
   -n, --limit <n>      Maximum rows, ${LIMIT.min}-${LIMIT.max} (default ${LIMIT.default})
   -s, --search <q>     endpoints: filter by name; "users#index" matches UsersController#index
-      --sort <key>     endpoints: ${ENDPOINT_SORT_KEYS.join(' | ')} (default: upstream order)
+      --sort <key>     endpoints: ${ENDPOINT_SORT_KEYS.join(' | ')} (default: agony, like Skylight)
       --step <s>       trends: bucket size in seconds, ${TREND_STEPS.join(' | ')}
                        (default: 60 up to 2h, 600 up to 24h, else 3600)
       --full           trace: show every event (default folds pass-through middleware
                        and hides events in fewer than 1% of requests)
       --min-ms <n>     trace: hide events shorter than n ms on average
-      --latency <a-b>  trace: only requests whose response time is in [a, b) ms
+      --latency <r>    trace: only requests in a response-time range: a-b (ms),
+                       fastest (quickest 30%), or slowest (above p95)
       --no-sources     trace: skip resolving file:line and gem names (saves requests)
       --json           Print JSON instead of a table
   -h, --help           Show this help
@@ -181,11 +184,33 @@ async function endpointSummary(client: SkylightClient, options: Options, compone
   return { highlight, detail: await client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp, duration: seconds }) };
 }
 
-function latencyRange(value: string | undefined): [number, number] | undefined {
+/** `a-b` in ms, or a preset resolved against the endpoint's latency digest once it is fetched. */
+function latencyRange(value: string | undefined): [number, number] | 'fastest' | 'slowest' | undefined {
   if (value === undefined) return undefined;
+  if (value === 'fastest' || value === 'slowest') return value;
   const match = /^(\d+)-(\d+)$/.exec(value);
-  if (!match || Number(match[1]) >= Number(match[2])) throw new UsageError(`Invalid --latency: ${value} (expected e.g. 100-500)`);
+  if (!match || Number(match[1]) >= Number(match[2])) {
+    throw new UsageError(`Invalid --latency: ${value} (expected e.g. 100-500, fastest, or slowest)`);
+  }
   return [Number(match[1]), Number(match[2])];
+}
+
+/** fastest: the quickest 30% of requests; slowest: the problem responses above p95 (as in the official MCP). */
+function resolveLatency(range: ReturnType<typeof latencyRange>, detail: EndpointSummary): [number, number] | undefined {
+  if (range === 'fastest') return [0, (digestQuantile(detail.endpoint.latencies, 0.3) ?? 0) + 1];
+  if (range === 'slowest') return [digestQuantile(detail.endpoint.latencies, 0.95) ?? 0, Number.MAX_SAFE_INTEGER];
+  return range;
+}
+
+const breakdownText = (tree: TraceTreeNode) =>
+  Object.entries(timeBreakdown(tree)).map(([group, percent]) => `${group} ${percent}%`).join(' · ');
+
+function histogramLines(detail: EndpointSummary): string[] {
+  const buckets = digestHistogram(detail.endpoint.latencies);
+  const total = buckets.reduce((sum, b) => sum + b.count, 0);
+  const peak = Math.max(...buckets.map(b => b.count), 1);
+  const label = (b: { from: number; to: number }) => `${b.from}-${b.to - 1}`.padStart(11);
+  return buckets.map(b => `${label(b)}  ${'█'.repeat(Math.round((b.count / peak) * 30)).padEnd(30)}  ${total ? ((b.count / total) * 100).toFixed(1) : '0.0'}%`);
 }
 
 const ms = (value: number) => value.toFixed(1);
@@ -203,7 +228,8 @@ function sourceSuffix(node: TraceTreeNode | LocatedTraceTreeNode): string {
 }
 
 function traceLines(node: TraceTreeNode | LocatedTraceTreeNode, prefix = '', last = true, isRoot = true): string[] {
-  const label = `${isRoot ? '' : `${prefix}${last ? '└─ ' : '├─ '}`}${node.title ?? node.category}${sourceSuffix(node)}`;
+  const repeated = node.repetitions > 1 ? ` ×${node.repetitions < 10 ? node.repetitions.toFixed(1) : Math.round(node.repetitions)}` : '';
+  const label = `${isRoot ? '' : `${prefix}${last ? '└─ ' : '├─ '}`}${node.title ?? node.category}${repeated}${sourceSuffix(node)}`;
   const row = [ms(node.startMs).padStart(7), ms(node.durationMs).padStart(7), ms(node.selfMs).padStart(7),
     Math.round(node.allocations).toLocaleString('en-US').padStart(9), `${Math.round(node.occurrence * 100)}%`.padStart(5), label].join('  ');
   const childPrefix = isRoot ? '' : `${prefix}${last ? '   ' : '│  '}`;
@@ -213,9 +239,11 @@ function traceLines(node: TraceTreeNode | LocatedTraceTreeNode, prefix = '', las
 const COMPONENT_COLUMNS: Column<Component>[] = [
   ['GUID', c => c.guid], ['ENVIRONMENT', c => c.environment], ['NAME', c => c.name], ['APP', c => c.appName]];
 
-const ENDPOINT_COLUMNS: Column<EndpointHighlight>[] = [
-  ['COUNT', e => e.count], ['P50', e => e.latencyP50], ['P95', e => e.latencyP95], ['P99', e => e.latencyP99],
-  ['N+1', e => e.inspections?.nPlusOneQuery], ['ALLOC', e => e.inspections?.objectAllocations], ['ENDPOINT', e => e.name]];
+const ENDPOINT_COLUMNS: Column<RankedEndpoint>[] = [
+  ['GRADE', e => e.grade], ['AGONY', e => '!'.repeat(e.agony) || '-'], ['RPM', e => e.rpm < 10 ? e.rpm.toFixed(2) : Math.round(e.rpm)],
+  ['P50', e => e.latencyP50], ['P95', e => e.latencyP95], ['P99', e => e.latencyP99],
+  ['FLAGS', e => [e.inspections?.nPlusOneQuery ? 'N+1' : '', e.highAllocations ? 'ALLOC' : ''].filter(Boolean).join(',')],
+  ['ENDPOINT', e => e.name]];
 
 const DEPLOY_COLUMNS: Column<Deploy>[] = [
   ['START', d => d.attributes?.start_at], ['DEPLOY', d => d.attributes?.deploy_id],
@@ -243,7 +271,7 @@ const COMMANDS: Record<string, Command> = {
     const result = await client.listEndpoints({
       componentId, duration: duration(options.since, ENDPOINT_WINDOW.default),
       timestamp: windowStart(options.at), limit: integer('limit', options.limit) ?? LIMIT.default,
-      search: options.search, sortBy: sortKey(options.sort),
+      search: options.search, sortBy: sortKey(options.sort) ?? 'agony',
     });
     const header = `Window ${time(result.timestamp)} + ${result.duration}s; showing ${result.endpoints.length} of ${result.total}\n`;
     return { json: result, text: header + table(result.endpoints, ENDPOINT_COLUMNS) };
@@ -252,12 +280,15 @@ const COMMANDS: Record<string, Command> = {
   async endpoint(client, options, componentId, [query]) {
     const { highlight, detail } = await endpointSummary(client, options, componentId, query!);
     const { endpoint, inspections } = detail;
+    const tree = buildTraceTree(detail.trace);
     const text = `Endpoint     ${endpoint.name}\n`
       + `Window       ${time(endpoint.timestamp)} + ${endpoint.duration}s\n`
       + `Requests     ${endpoint.count}\n`
       + `Latency      p50 ${highlight.latencyP50}  p95 ${highlight.latencyP95}  p99 ${highlight.latencyP99}  (min ${endpoint.latencies.min}, max ${endpoint.latencies.max})\n`
+      + (tree ? `Time         ${breakdownText(tree)}\n` : '')
       + `Inspections  ${inspections.results.length || 'none'}\n`
-      + inspections.results.map(inspectionText).join('');
+      + inspections.results.map(inspectionText).join('')
+      + (endpoint.latencies.count ? `\nResponse times (p5-p99, ms)\n${histogramLines(detail).join('\n')}\n` : '');
     return { json: { ...detail, highlight }, text };
   },
 
@@ -266,7 +297,8 @@ const COMMANDS: Record<string, Command> = {
     const minMs = options['min-ms'] === undefined ? 0 : Number(options['min-ms']);
     if (!Number.isFinite(minMs) || minMs < 0) throw new UsageError(`Invalid --min-ms: ${options['min-ms']}`);
     const { detail } = await endpointSummary(client, options, componentId, query!);
-    const tree = buildTraceTree(detail.trace, range ? { targets: t => t.start >= range[0] && t.start < range[1] } : {});
+    const bounds = resolveLatency(range, detail);
+    const tree = buildTraceTree(detail.trace, bounds ? { targets: t => t.start + t.length > bounds[0] && t.start < bounds[1] } : {});
     if (!tree) {
       return { json: null, text: `Endpoint  ${detail.endpoint.name}\nNo trace samples${range ? ' in that latency range' : ''} for this window.\n` };
     }
@@ -291,7 +323,9 @@ const COMMANDS: Record<string, Command> = {
     }
     const text = `Endpoint  ${detail.endpoint.name}\n`
       + `Window    ${time(detail.endpoint.timestamp)} + ${detail.endpoint.duration}s; ${tree.samples} requests`
-      + `${range ? ` at ${range[0]}-${range[1]} ms` : ''}\n`
+      + `${bounds ? ` at ${typeof range === 'string' ? `${range} (` : ''}${bounds[0]}-${bounds[1] === Number.MAX_SAFE_INTEGER ? '' : bounds[1]} ms${typeof range === 'string' ? ')' : ''}` : ''}\n`
+      + `Time      ${breakdownText(tree)}\n`
+      + needsInstrumentation(tree).map(n => `Hint      ${n.title ?? n.category} spends ${Math.round((n.selfMs * n.samples) / (tree.durationMs * tree.samples) * 100)}% of the request in its own code; custom instrumentation would show where\n`).join('')
       + sources
       + (hidden ? `Hidden    ${hidden} events (folded middleware${options.full ? '' : ', under 1% of requests'}${minMs ? `, under ${minMs} ms` : ''}); --full shows all\n` : '')
       + `\n  START      DUR     SELF     ALLOC   SEEN  EVENT (times in ms, averaged over requests that include the event)\n`

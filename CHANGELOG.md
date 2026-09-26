@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `endpoints` shows Skylight's grade, agony, requests per minute, and N+1 and high-allocation flags, and sorts by
+  agony by default, like the Skylight UI. Scores come from the UI's own formulas. `rankEndpoints()`, `gradeFor()`.
+- `endpoint` and `trace` show the time breakdown (app / db / view / other); `endpoint` adds a response-time histogram
+  from the latency digest. `timeBreakdown()`, `digestQuantile()`, `digestHistogram()`.
+- `trace` marks events that repeat within a request (`×N`, e.g. N+1 queries) and hints where app code needs custom
+  instrumentation. `--latency fastest` and `--latency slowest` select the quickest 30% or requests above p95.
+- `TraceSpan` fields are all named (repetitions, max repetitions, variance), following Skylight's frontend.
+
+### Fixed
+
+- Trace self time was too low when a child event ran in only some of the requests, which also shifted time from
+  app to db in the breakdown.
+
 ## [0.4.0] - 2026-09-25
 
 ### Added

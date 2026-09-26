@@ -48,7 +48,8 @@ test('uses the three token types correctly and exposes no credentials in app met
   assert.equal(apps[0]?.components.length, 1);
   assert.doesNotMatch(JSON.stringify(apps) + inspect(client), /test-(mcp|session|client)|client_api_token/);
   const endpoints = await client.listEndpoints({ timestamp: 1201, duration: 600, limit: 1 });
-  assert.deepEqual(endpoints, { timestamp: 1200, duration: 600, total: 2, endpoints: [{ name: 'A' }] });
+  assert.deepEqual({ ...endpoints, endpoints: endpoints.endpoints.map(e => e.name) },
+    { timestamp: 1200, duration: 600, total: 2, endpoints: ['A'] });
   const endpointCall = calls.find(call => call.method === 'POST')!;
   assert.deepEqual(JSON.parse(endpointCall.body!), { timestamp: 1200, duration: 600 });
   assert.equal(endpointCall.target.pathname, '/apps/component-0/endpoint_highlights');
