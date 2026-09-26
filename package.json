@@ -1,6 +1,6 @@
 {
   "name": "skylight-cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Unofficial read-only CLI and API client for Skylight (skylight.io), using your Skylight MCP token",
   "keywords": [
     "skylight",

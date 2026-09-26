@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-25
+
 ### Added
 
 - `endpoints` shows Skylight's grade, agony, requests per minute, and N+1 and high-allocation flags, and sorts by
@@ -85,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `endpoints --search` (Rails-style `users#index`) and `--sort count|p50|p95|p99`.
 - `SkylightClient`, a read-only Node.js client that handles the MCP token → session token → client API token chain.
 
-[unreleased]: https://github.com/linyiru/skylight-cli/compare/v0.4.0...HEAD
+[unreleased]: https://github.com/linyiru/skylight-cli/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/linyiru/skylight-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/linyiru/skylight-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/linyiru/skylight-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/linyiru/skylight-cli/compare/v0.1.0...v0.2.0
