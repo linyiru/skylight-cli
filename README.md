@@ -28,6 +28,7 @@ skylight-cli endpoint users#show                 # latency, time breakdown, N+1 
 skylight-cli trace graphql:CoursePage            # aggregated trace tree: start, duration, self time, allocations
 skylight-cli trace users#show --latency slowest  # only requests above p95; or fastest, or 500-5000
 skylight-cli trace users#show --repo owner/app   # file:line links to GitHub at the deployed commit
+skylight-cli trace users#show --repo owner/mono/apps/rails  # app in a monorepo subdirectory
                                                  # each event shows its app file:line, or [gem]
 skylight-cli trends --since 24h                  # app-wide count and p50/p95/p99, 10-minute buckets
 skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel requests
@@ -52,7 +53,7 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 | `--min-ms` | Trace: hide events shorter than this many ms on average. |
 | `--latency` | Trace: only requests in a response-time range: `a-b` ms, `fastest` (quickest 30%), or `slowest` (above p95). |
 | `--no-sources` | Trace: skip resolving source locations (two extra requests). |
-| `--repo` | GitHub repo, `owner/name` or a github.com URL, also `$SKYLIGHT_GITHUB_REPO`. Links `trace` file:line and the `compare` commit to GitHub. |
+| `--repo` | GitHub repo, also `$SKYLIGHT_GITHUB_REPO`: `owner/name`, a github.com address (with or without `https://`), or an ssh remote. For an app in a monorepo, add its directory (`owner/name/apps/rails`) or paste the browser URL (`…/tree/develop/apps/rails`). Links `trace` file:line and the `compare` commit to GitHub. |
 | `--step` | Trends bucket: `60`, `600`, or `3600` seconds. Default: 60 up to 2h, 600 up to 24h, else 3600. |
 | `--json` | Machine-readable output. |
 
@@ -105,6 +106,8 @@ involved, resolved for the deploy that recorded the trace. If the lookup fails, 
 With `--repo`, app `file:line` links to `github.com/{repo}/tree/{deployed sha}/{path}#L{line}`, the same link as
 Skylight's UI. In a terminal the link is an OSC 8 hyperlink, and in `--json` each location carries a `url`.
 Skylight stores the repo, but only behind a web login (`/apps/{id}` answers 401 to an MCP session), so pass it in.
+Skylight's source paths are relative to the app's root. If the app lives in a monorepo subdirectory, include that
+directory in `--repo`; Skylight's own links omit it and break in that case.
 Its p50/p95/p99 are Skylight's own figures; min and max come from the endpoint's latency digest.
 
 Latencies are in milliseconds.

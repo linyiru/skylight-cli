@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--repo` accepts an app directory for monorepos: `owner/name/apps/rails`, or a pasted browser URL such as
+  `github.com/owner/name/tree/develop/apps/rails`. Skylight's source paths are relative to the app's root, so
+  without it every link in such a repo pointed at a missing file. `parseGithubLocation()`; `githubFileUrl()`
+  accepts a `GithubLocation`.
+
+### Fixed
+
+- `--repo github.com/owner/name` (no `https://`) was rejected.
+- A host such as `gitlab.com/owner/name` is no longer taken for a GitHub owner.
+
 ## [0.7.0] - 2026-09-25
 
 ### Added

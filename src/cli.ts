@@ -12,7 +12,7 @@ import {
 } from './trace.ts';
 import { digestHistogram, digestQuantile } from './digest.ts';
 import { compareEndpoints, type EndpointChange } from './compare.ts';
-import { githubCommitUrl, parseGithubRepo, terminalLink } from './github.ts';
+import { githubCommitUrl, parseGithubLocation, terminalLink, type GithubLocation } from './github.ts';
 import { WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
 import { rankEndpoints, type RankedEndpoint } from './rank.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
@@ -70,8 +70,9 @@ Options:
                        report: in each week (default 100)
       --week <date>    report: any date in the week (YYYY-MM-DD, UTC; default: last full week)
       --weeks <n>      report: weeks for frog boils, 3-6 (default 6; Skylight keeps about 7)
-      --repo <o/n>     GitHub repo (owner/name or URL) for links: trace file:line and
-                       compare commits link there (clickable in terminals that support it)
+      --repo <o/n>     GitHub repo for links: trace file:line and compare commits link there
+                       (clickable in terminals). For an app in a subdirectory of a monorepo,
+                       add it: owner/name/apps/rails, or paste .../tree/<branch>/apps/rails
       --json           Print JSON instead of a table
   -h, --help           Show this help
   -v, --version        Show version
@@ -186,7 +187,7 @@ function inspectionText(inspection: Inspection): string {
 
 interface Output { json: unknown; text: string }
 /** Output context: the GitHub repo for links, and whether stdout is a terminal that can show hyperlinks. */
-interface Context { repo: string | undefined; links: boolean }
+interface Context { repo: GithubLocation | undefined; links: boolean }
 
 type Command = (client: SkylightClient, options: Options, componentId: string | undefined, args: string[], context: Context) => Promise<Output>;
 
@@ -439,7 +440,7 @@ const COMMANDS: Record<string, Command> = {
     const slower = result.changed.filter(c => c.impactMsPerMinute > 0).slice(0, limit);
     const faster = result.changed.filter(c => c.impactMsPerMinute < 0).reverse().slice(0, Math.min(5, limit));
     const sha = deploy.attributes.git_sha;
-    const commit = repo && sha ? githubCommitUrl(repo, sha) : null;
+    const commit = repo && sha ? githubCommitUrl(repo.repo, sha) : null;
     const text = `Deploy    ${links && commit ? terminalLink(sha.slice(0, 7), commit) : sha.slice(0, 7)} at ${time(started)}  ${oneLine(deploy.attributes.description, 70)}\n`
       + (commit && !links ? `Commit    ${commit}\n` : '')
       + (baseline === 'week'
@@ -545,8 +546,10 @@ export async function main(argv: string[], { env = process.env, stdout = process
   }
   try {
     const repoValue = options.repo ?? (env.SKYLIGHT_GITHUB_REPO || undefined);
-    const repo = parseGithubRepo(repoValue);
-    if (repoValue !== undefined && !repo) throw new UsageError(`Invalid --repo: ${repoValue} (expected owner/name or a github.com URL)`);
+    const repo = parseGithubLocation(repoValue);
+    if (repoValue !== undefined && !repo) {
+      throw new UsageError(`Invalid --repo: ${repoValue} (expected owner/name[/app/dir] or a github.com URL)`);
+    }
     let client: SkylightClient;
     try {
       client = new SkylightClient({ token: env.SKYLIGHT_MCP_TOKEN, ...(fetch ? { fetch } : {}) });

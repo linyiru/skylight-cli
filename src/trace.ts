@@ -1,4 +1,4 @@
-import { githubFileUrl } from './github.ts';
+import { githubFileUrl, type GithubLocation } from './github.ts';
 import type { TraceNode, TraceSpan, TraceTarget } from './types.ts';
 
 /** One event in the aggregated trace. Times are ms, averaged over the sampled requests the node occurs in. */
@@ -183,10 +183,10 @@ export interface LocatedTraceTreeNode extends Omit<TraceTreeNode, 'children'> {
 
 /**
  * Attaches resolved source names (by digest) and deploy git shas (by deploy ref) to every node, and GitHub links
- * for app code when `repo` (`owner/name`) is given.
+ * for app code when a repo is given (`owner/name`, or a `GithubLocation` for an app in a subdirectory).
  */
 export function locateTraceTree(node: TraceTreeNode, names: ReadonlyMap<string, string>,
-  gitShas: ReadonlyMap<string, string> = new Map(), repo?: string): LocatedTraceTreeNode {
+  gitShas: ReadonlyMap<string, string> = new Map(), repo?: string | GithubLocation): LocatedTraceTreeNode {
   const locations = node.sources.map(parseTraceSource)
     .filter((ref): ref is TraceSourceRef => ref !== undefined)
     .map(ref => {
