@@ -34,6 +34,7 @@ skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel request
 skylight-cli deploys -n 5                        # most recent first
 skylight-cli compare                             # what the latest deploy slowed down (2h before vs after)
 skylight-cli compare --deploy 07b0150 --since 1h
+skylight-cli compare --baseline week             # vs the same hours last week: no time-of-day effects
 skylight-cli report                              # last week vs the one before, like Skylight's Trends email
 skylight-cli report --week 2026-09-07 --weeks 4
 skylight-cli endpoints --json | jq '.endpoints[0]'
@@ -76,7 +77,10 @@ window before the deploy started with an equal window starting 5 minutes after, 
 - Endpoints are ranked by request time added per minute (p50 change × rpm), so a busy endpoint that slowed a
   little ranks above a rare one that swung a lot.
 - It notes when the next deploy falls inside the after window.
-- Adjacent windows can differ in traffic by time of day; read small changes with that in mind.
+- Adjacent windows can differ in traffic by time of day. `--baseline week` compares the after window with the
+  same hours seven days earlier instead, so time-of-day and weekday patterns cancel out. That baseline then carries
+  every change deployed during the week, not just this deploy, so the output names the version it ran and how many
+  deploys followed.
 
 `report` rebuilds Skylight's weekly Trends report, whose own API needs a web login. It covers:
 - typical (p50) and problem (p95) performance against last week;

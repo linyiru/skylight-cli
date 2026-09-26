@@ -398,6 +398,27 @@ describe('CLI on recorded responses', () => {
     assert.match(boils, /100 → 120 → 144 → 173 → 207 → 249/);
   });
 
+  test('compare --baseline week uses the same hours seven days earlier', async () => {
+    const deploys = fixture('deploys.ok').response.body as { data: { attributes: { start_at: string; git_sha: string } }[] };
+    const target = deploys.data[1]!.attributes;
+    const settled = Math.floor(Date.parse(target.start_at) / 1000) + 300;
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: EndpointHighlight[] };
+    const windows: number[] = [];
+    server.use(replay('auth.ok'), replay('apps.ok'), replay('deploys.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, async ({ request }) => {
+        const { timestamp, duration } = await request.json() as { timestamp: number; duration: number };
+        windows.push(timestamp);
+        return Response.json({ timestamp, duration, endpoints: highlights.endpoints.map(e => ({ ...e, count: 100 })) });
+      }));
+    const { code, stdout } = await cli(['compare', '--deploy', target.git_sha.slice(0, 7), '--since', '1h', '--baseline', 'week']);
+    assert.equal(code, 0, stdout);
+    const minute = (t: number) => Math.floor(t / 60) * 60;
+    assert.deepEqual(windows.sort(), [minute(settled - WEEK_SECONDS), minute(settled)]);
+    assert.match(stdout, /same time a week apart/);
+    assert.match(stdout, /^Baseline +ran .*; \d+ deploys? since, all included in the comparison$/m);
+    assert.equal((await cli(['compare', '--baseline', 'month'])).code, 2);
+  });
+
   test('an upstream 401 is exit code 1 with a token hint', async () => {
     server.use(replay('auth.invalid-token'));
     const { code, stderr } = await cli(['auth']);

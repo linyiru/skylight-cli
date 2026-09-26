@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--repo owner/name` (or `$SKYLIGHT_GITHUB_REPO`) links app `file:line` in `trace` and the commit in `compare` to
   GitHub at the deployed sha. The links match Skylight's UI. They are clickable OSC 8 hyperlinks in terminals, and
   `url` fields in `--json`. `githubFileUrl()`, `githubCommitUrl()`, `parseGithubRepo()`.
+- `compare --baseline week`: compare the after window with the same hours seven days earlier, so time-of-day and
+  weekday traffic patterns cancel out. It names the version that ran then and counts the deploys since.
+
+### Fixed
+
+- `compare` compared at most 500 endpoints per window, silently dropping the rest in long windows; it now uses the
+  full lists.
 
 ## [0.6.0] - 2026-09-25
 

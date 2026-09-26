@@ -14,7 +14,7 @@ import { digestHistogram, digestQuantile } from './digest.ts';
 import { compareEndpoints, type EndpointChange } from './compare.ts';
 import { githubCommitUrl, parseGithubRepo, terminalLink } from './github.ts';
 import { WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
-import type { RankedEndpoint } from './rank.ts';
+import { rankEndpoints, type RankedEndpoint } from './rank.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -64,6 +64,8 @@ Options:
       --deploy <ref>   compare: git sha or deploy id prefix (default: the latest deploy);
                        --since sets each side's window (default 2h, max 24h); the after
                        window starts 5 min into the deploy, past the rollout
+      --baseline <b>   compare: before (the window before the deploy, default) or week
+                       (the same hours 7 days earlier: no time-of-day or weekday effects)
       --min-requests <n>  compare: requests needed in both windows (default 20);
                        report: in each week (default 100)
       --week <date>    report: any date in the week (YYYY-MM-DD, UTC; default: last full week)
@@ -94,6 +96,7 @@ const OPTIONS = {
   deploy: { type: 'string' },
   week: { type: 'string' },
   repo: { type: 'string' },
+  baseline: { type: 'string' },
   weeks: { type: 'string' },
   'min-requests': { type: 'string' },
   json: { type: 'boolean' },
@@ -401,11 +404,26 @@ const COMMANDS: Record<string, Command> = {
       seconds = available;
     }
     const minRequests = integer('min-requests', options['min-requests']) ?? 20;
-    const [before, after] = await Promise.all([
-      client.listEndpoints({ componentId, timestamp: started - seconds, duration: seconds, limit: LIMIT.max, sortBy: 'count' }),
-      client.listEndpoints({ componentId, timestamp: settled, duration: seconds, limit: LIMIT.max, sortBy: 'count' }),
+    const baseline = options.baseline ?? 'before';
+    if (baseline !== 'before' && baseline !== 'week') throw new UsageError(`Invalid --baseline: ${baseline} (before or week)`);
+    // `week` compares the same hours seven days earlier, so time-of-day and weekday traffic patterns cancel out.
+    const baselineStart = baseline === 'week' ? settled - WEEK_SECONDS : started - seconds;
+    const retained = weekStart(Date.now() / 1000) - 6 * WEEK_SECONDS;
+    if (baselineStart < retained) throw new UsageError(`The baseline window starts before ${time(retained)}, older than Skylight keeps`);
+    // Full lists: a long window can hold over the 500 endpoints listEndpoints returns.
+    const [beforeRaw, afterRaw] = await Promise.all([
+      client.getEndpointHighlights({ componentId, timestamp: baselineStart, duration: seconds }),
+      client.getEndpointHighlights({ componentId, timestamp: settled, duration: seconds }),
     ]);
+    const before = { ...beforeRaw, endpoints: rankEndpoints(beforeRaw.endpoints, beforeRaw.duration) };
+    const after = { ...afterRaw, endpoints: rankEndpoints(afterRaw.endpoints, afterRaw.duration) };
     const result = compareEndpoints(before.endpoints, after.endpoints, { minRequests });
+    // The version that was live during a week-ago baseline: the latest deploy started before it.
+    const baselineDeploy = baseline === 'week'
+      ? deploys.find(d => Date.parse(d.attributes.start_at) / 1000 <= baselineStart) : undefined;
+    // Everything deployed since the baseline shows up in a week-over-week comparison, not only this deploy.
+    const deploysSince = baseline === 'week'
+      ? deploys.filter(d => { const at = Date.parse(d.attributes.start_at) / 1000; return at > baselineStart && at <= started; }).length : 0;
     const limit = integer('limit', options.limit) ?? LIMIT.default;
     // Deploys are newest first: the one just before this index happened after it.
     const next = index > 0 ? deploys[index - 1] : undefined;
@@ -424,14 +442,19 @@ const COMMANDS: Record<string, Command> = {
     const commit = repo && sha ? githubCommitUrl(repo, sha) : null;
     const text = `Deploy    ${links && commit ? terminalLink(sha.slice(0, 7), commit) : sha.slice(0, 7)} at ${time(started)}  ${oneLine(deploy.attributes.description, 70)}\n`
       + (commit && !links ? `Commit    ${commit}\n` : '')
-      + `Windows   before ${hhmm(before.timestamp)}-${hhmm(before.timestamp + before.duration)}, after ${hhmm(after.timestamp)}-${hhmm(after.timestamp + after.duration)} UTC (${Math.round(seconds / 60)} min each)\n`
+      + (baseline === 'week'
+        ? `Windows   baseline ${time(before.timestamp).slice(0, 16)}, after ${time(after.timestamp).slice(0, 16)} UTC (${Math.round(seconds / 60)} min each, same time a week apart)\n`
+          + `Baseline  ran ${baselineDeploy ? `deploy ${baselineDeploy.attributes.git_sha.slice(0, 7)} from ${time(Date.parse(baselineDeploy.attributes.start_at) / 1000)}` : 'a deploy older than 45 days'}; `
+          + `${deploysSince} deploy${deploysSince === 1 ? '' : 's'} since, all included in the comparison\n`
+        : `Windows   before ${hhmm(before.timestamp)}-${hhmm(before.timestamp + before.duration)}, after ${hhmm(after.timestamp)}-${hhmm(after.timestamp + after.duration)} UTC (${Math.round(seconds / 60)} min each)\n`)
       + `Compared  ${result.changed.length} endpoints with at least ${minRequests} requests in both; `
       + `${result.appeared.length} appeared, ${result.disappeared.length} disappeared\n`
       + (overlapping ? `Note      the next deploy (${next.attributes.git_sha.slice(0, 7)} at ${time(Date.parse(next.attributes.start_at) / 1000)}) falls inside the after window\n` : '')
       + `\nSlower (request time added per minute)\n${table(slower, columns)}`
       + `\nFaster\n${table(faster, columns)}`
       + (result.appeared.length ? `\nAppeared  ${result.appeared.slice(0, 5).map(e => e.name).join(', ')}${result.appeared.length > 5 ? ', …' : ''}\n` : '');
-    return { json: { deploy, commitUrl: commit, before: { timestamp: before.timestamp, duration: before.duration },
+    return { json: { deploy, commitUrl: commit, baseline, baselineDeploy: baselineDeploy ?? null, deploysSince,
+      before: { timestamp: before.timestamp, duration: before.duration },
       after: { timestamp: after.timestamp, duration: after.duration }, minRequests, ...result }, text };
   },
 
