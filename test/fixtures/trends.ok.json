@@ -10,7 +10,7 @@
     "body": {
       "ranges": [
         {
-          "timestamp": 1790366400,
+          "timestamp": 1790370000,
           "step": 3600,
           "count": 3
         }
@@ -23,43 +23,43 @@
     "body": {
       "ranges": [
         {
-          "timestamp": 1790366400,
+          "timestamp": 1790370000,
           "duration": 10800,
           "step": 3600,
           "counts": [
-            14193,
             14165,
-            19206
+            19206,
+            24233
           ],
           "latenciesP50": [
-            7,
             6,
+            7,
             7
           ],
           "latenciesP90": [
-            19,
             18,
+            19,
             19
           ],
           "latenciesP95": [
-            25,
             22,
-            23
+            23,
+            24
           ],
           "latenciesP98": [
-            37,
             28,
-            29
+            29,
+            31
           ],
           "latenciesP99": [
-            50,
             34,
-            36
+            36,
+            43
           ],
           "latenciesMax": [
-            4083,
             3718,
-            3354
+            3354,
+            1968
           ]
         }
       ]

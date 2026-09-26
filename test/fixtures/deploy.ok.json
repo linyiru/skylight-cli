@@ -3,7 +3,7 @@
   "description": "One deploy by the id a trace annotation refers to",
   "request": {
     "method": "GET",
-    "url": "https://www.skylight.io/deploys/fxe4f8dcc870",
+    "url": "https://www.skylight.io/deploys/fx3a0812601d",
     "auth": "session",
     "bearer": false,
     "accept": "*/*",
@@ -14,13 +14,13 @@
     "contentType": "application/vnd.api+json; charset=utf-8",
     "body": {
       "data": {
-        "id": "fxe4f8dcc870",
+        "id": "fx3a0812601d",
         "type": "deploys",
         "attributes": {
-          "start_at": "2026-09-25T13:11:41+00:00",
-          "end_at": "2026-09-26T01:58:25+00:00",
-          "deploy_id": "87a55581c638bbcdbe79322ac1fe1cf9b0929c80",
-          "git_sha": "87a55581c638bbcdbe79322ac1fe1cf9b0929c80",
+          "start_at": "2026-09-26T00:09:53+00:00",
+          "end_at": null,
+          "deploy_id": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
+          "git_sha": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
           "description": "description-35b9ebef"
         },
         "relationships": {

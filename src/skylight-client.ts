@@ -1,8 +1,9 @@
 import { SkylightError } from './errors.ts';
 import { rankEndpoints, type RankedEndpoint } from './rank.ts';
+import { DAY_SECONDS, WEEK_SECONDS, aggregateAppSeries, aggregateEndpointDays, weekStart, type WeekData } from './weekly.ts';
 import {
   DEPLOY_WINDOW, ENDPOINT_WINDOW, LIMIT, SOURCE_LOCATION_BATCH, TREND_WINDOW, assertLimit, defaultTrendStep, isEndpointSortKey, timeWindow,
-  trendRanges, type EndpointSortKey, type TrendStep, type WindowStart,
+  trendRanges, type EndpointSortKey, type TimeWindow, type TrendStep, type WindowStart,
 } from './spec.ts';
 import type {
   App, ClientApiToken, Component, Deploy, DeployList, EndpointHighlight, EndpointList, EndpointSummary, McpToken,
@@ -196,6 +197,20 @@ export class SkylightClient {
     return { base: `${this.#dataUrl}/apps/${encodeURIComponent(component.guid)}`, token };
   }
 
+  async #endpointHighlights(componentId: string | undefined, window: TimeWindow): Promise<WireEndpointHighlightsResponse> {
+    const { base, token } = await this.#dataAccess(componentId);
+    const result = await this.#request<Partial<WireEndpointHighlightsResponse>>(`${base}/endpoint_highlights`, token, window);
+    if (!Array.isArray(result?.endpoints)) throw new SkylightError('INVALID_ENDPOINTS_RESPONSE');
+    return { timestamp: result.timestamp ?? window.timestamp, duration: result.duration ?? window.duration, endpoints: result.endpoints };
+  }
+
+  /** Every endpoint in a window, unranked and unlimited (a busy app has over a thousand per day). */
+  async getEndpointHighlights({ componentId, timestamp = 'recent', duration = ENDPOINT_WINDOW.default }: Omit<WindowOptions, 'limit'> = {}):
+    Promise<WireEndpointHighlightsResponse> {
+    const window = timeWindow(timestamp, duration, ENDPOINT_WINDOW);
+    return this.#run(() => this.#endpointHighlights(componentId, window));
+  }
+
   async listApps({ refresh = false }: ListOptions = {}): Promise<App[]> {
     return this.#run(async () => (await this.#loadApps(refresh)).map(app => ({
       guid: app.guid, name: app.name,
@@ -215,14 +230,11 @@ export class SkylightClient {
     const matches = endpointMatcher(search);
     if (sortBy !== undefined && !isEndpointSortKey(sortBy)) throw new SkylightError('INVALID_SORT');
     return this.#run(async () => {
-      const { base, token } = await this.#dataAccess(componentId);
-      const result = await this.#request<Partial<WireEndpointHighlightsResponse>>(`${base}/endpoint_highlights`, token, window);
-      if (!Array.isArray(result?.endpoints)) throw new SkylightError('INVALID_ENDPOINTS_RESPONSE');
+      const result = await this.#endpointHighlights(componentId, window);
       // Score against the whole window first; search and limit only choose what to show.
-      let endpoints = rankEndpoints(result.endpoints, result.duration ?? window.duration).filter(matches);
+      let endpoints = rankEndpoints(result.endpoints, result.duration).filter(matches);
       if (sortBy !== undefined) endpoints = endpoints.toSorted(SORTS[sortBy]);
-      return { timestamp: result.timestamp ?? window.timestamp, duration: result.duration ?? window.duration,
-        total: endpoints.length, endpoints: endpoints.slice(0, limit) };
+      return { timestamp: result.timestamp, duration: result.duration, total: endpoints.length, endpoints: endpoints.slice(0, limit) };
     });
   }
 
@@ -318,5 +330,21 @@ export class SkylightClient {
       if (typeof result?.data?.attributes?.git_sha !== 'string') throw new SkylightError('INVALID_DEPLOY_RESPONSE');
       return result.data;
     });
+  }
+
+  /**
+   * One Monday-to-Monday UTC week: endpoint stats from seven daily highlights and app stats from hourly trends,
+   * fetched in parallel. Skylight keeps data back to the Monday six weeks before the current one; older weeks are
+   * empty.
+   */
+  async getWeek({ componentId, start }: { componentId?: string | undefined; start: number }): Promise<WeekData> {
+    const monday = weekStart(start);
+    const [days, series] = await Promise.all([
+      Promise.all(Array.from({ length: 7 }, (_, day) =>
+        this.getEndpointHighlights({ componentId, timestamp: monday + day * DAY_SECONDS, duration: DAY_SECONDS }))),
+      this.getLatencyTrends({ componentId, timestamp: monday, duration: WEEK_SECONDS, step: 3_600 }),
+    ]);
+    return { start: monday, end: monday + WEEK_SECONDS, app: aggregateAppSeries(series),
+      endpoints: aggregateEndpointDays(days.map(day => day.endpoints)) };
   }
 }

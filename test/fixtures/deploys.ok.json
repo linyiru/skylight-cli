@@ -3,7 +3,7 @@
   "description": "Deploys for the last 45 days",
   "request": {
     "method": "GET",
-    "url": "https://www.skylight.io/deploys?timestamp=1786490580&duration=3888000&app_component_id=fx4411e8845d",
+    "url": "https://www.skylight.io/deploys?timestamp=1786493520&duration=3888000&app_component_id=fx4411e8845d",
     "auth": "session",
     "bearer": false,
     "accept": "*/*",
@@ -14,6 +14,31 @@
     "contentType": "application/vnd.api+json; charset=utf-8",
     "body": {
       "data": [
+        {
+          "id": "fx3a0812601d",
+          "type": "deploys",
+          "attributes": {
+            "start_at": "2026-09-26T00:09:53+00:00",
+            "end_at": null,
+            "deploy_id": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
+            "git_sha": "874363e02bc0a33bcf38019b53c16bcaa666e21f",
+            "description": "description-35b9ebef"
+          },
+          "relationships": {
+            "app": {
+              "data": {
+                "type": "apps",
+                "id": "fx455a46cba8"
+              }
+            },
+            "app_component": {
+              "data": {
+                "type": "app_components",
+                "id": "fx4411e8845d"
+              }
+            }
+          }
+        },
         {
           "id": "fxe4f8dcc870",
           "type": "deploys",
@@ -722,31 +747,6 @@
             "end_at": "2026-09-23T16:59:34+00:00",
             "deploy_id": "c5785897cebcbf81bf51d33510a10b85b9e1c18d",
             "git_sha": "c5785897cebcbf81bf51d33510a10b85b9e1c18d",
-            "description": "description-35b9ebef"
-          },
-          "relationships": {
-            "app": {
-              "data": {
-                "type": "apps",
-                "id": "fx455a46cba8"
-              }
-            },
-            "app_component": {
-              "data": {
-                "type": "app_components",
-                "id": "fx4411e8845d"
-              }
-            }
-          }
-        },
-        {
-          "id": "fxe8c4b57c27",
-          "type": "deploys",
-          "attributes": {
-            "start_at": "2026-09-23T09:51:16+00:00",
-            "end_at": "2026-09-23T16:26:19+00:00",
-            "deploy_id": "68419d63a20dfde8ebd148e149bbe5e42e7c4c3c",
-            "git_sha": "68419d63a20dfde8ebd148e149bbe5e42e7c4c3c",
             "description": "description-35b9ebef"
           },
           "relationships": {

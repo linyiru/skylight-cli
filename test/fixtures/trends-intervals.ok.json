@@ -1,0 +1,291 @@
+{
+  "scenario": "trends-intervals.ok",
+  "description": "Weekly Trends periods (Monday to Monday UTC) for a component",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/trends_intervals?filter%5Bapp_component_id%5D=fx4411e8845d",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/vnd.api+json; charset=utf-8",
+    "body": {
+      "data": [
+        {
+          "id": "fx62c7ef8aeb",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-02-22T00:00:00+00:00",
+            "end_at": "2021-03-01T00:00:00+00:00",
+            "timestamp": 1614556800
+          }
+        },
+        {
+          "id": "fxbd9b48f5f9",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-03-01T00:00:00+00:00",
+            "end_at": "2021-03-08T00:00:00+00:00",
+            "timestamp": 1615161600
+          }
+        },
+        {
+          "id": "fx3575f1807a",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-03-08T00:00:00+00:00",
+            "end_at": "2021-03-15T00:00:00+00:00",
+            "timestamp": 1615766400
+          }
+        },
+        {
+          "id": "fx9993e395fd",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-03-15T00:00:00+00:00",
+            "end_at": "2021-03-22T00:00:00+00:00",
+            "timestamp": 1616371200
+          }
+        },
+        {
+          "id": "fx77b97eeb2c",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-03-22T00:00:00+00:00",
+            "end_at": "2021-03-29T00:00:00+00:00",
+            "timestamp": 1616976000
+          }
+        },
+        {
+          "id": "fx704db0b0ef",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-03-29T00:00:00+00:00",
+            "end_at": "2021-04-05T00:00:00+00:00",
+            "timestamp": 1617580800
+          }
+        },
+        {
+          "id": "fx33cdc68e0e",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-04-05T00:00:00+00:00",
+            "end_at": "2021-04-12T00:00:00+00:00",
+            "timestamp": 1618185600
+          }
+        },
+        {
+          "id": "fx1c54d89cd6",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-04-12T00:00:00+00:00",
+            "end_at": "2021-04-19T00:00:00+00:00",
+            "timestamp": 1618790400
+          }
+        },
+        {
+          "id": "fx6e9a01badc",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-04-19T00:00:00+00:00",
+            "end_at": "2021-04-26T00:00:00+00:00",
+            "timestamp": 1619395200
+          }
+        },
+        {
+          "id": "fxbacb41da35",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-04-26T00:00:00+00:00",
+            "end_at": "2021-05-03T00:00:00+00:00",
+            "timestamp": 1620000000
+          }
+        },
+        {
+          "id": "fxe85436e494",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-05-03T00:00:00+00:00",
+            "end_at": "2021-05-10T00:00:00+00:00",
+            "timestamp": 1620604800
+          }
+        },
+        {
+          "id": "fx7c3efc7215",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-05-10T00:00:00+00:00",
+            "end_at": "2021-05-17T00:00:00+00:00",
+            "timestamp": 1621209600
+          }
+        },
+        {
+          "id": "fxc251324489",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-05-17T00:00:00+00:00",
+            "end_at": "2021-05-24T00:00:00+00:00",
+            "timestamp": 1621814400
+          }
+        },
+        {
+          "id": "fxc193bc26fe",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-05-24T00:00:00+00:00",
+            "end_at": "2021-05-31T00:00:00+00:00",
+            "timestamp": 1622419200
+          }
+        },
+        {
+          "id": "fx4cd37be13c",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-05-31T00:00:00+00:00",
+            "end_at": "2021-06-07T00:00:00+00:00",
+            "timestamp": 1623024000
+          }
+        },
+        {
+          "id": "fx5c176a1f2e",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-06-07T00:00:00+00:00",
+            "end_at": "2021-06-14T00:00:00+00:00",
+            "timestamp": 1623628800
+          }
+        },
+        {
+          "id": "fx4644afa2bd",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-06-14T00:00:00+00:00",
+            "end_at": "2021-06-21T00:00:00+00:00",
+            "timestamp": 1624233600
+          }
+        },
+        {
+          "id": "fx4530d2278c",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-06-21T00:00:00+00:00",
+            "end_at": "2021-06-28T00:00:00+00:00",
+            "timestamp": 1624838400
+          }
+        },
+        {
+          "id": "fx5fcb68cd09",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-06-28T00:00:00+00:00",
+            "end_at": "2021-07-05T00:00:00+00:00",
+            "timestamp": 1625443200
+          }
+        },
+        {
+          "id": "fx9b32eb99e9",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-07-05T00:00:00+00:00",
+            "end_at": "2021-07-12T00:00:00+00:00",
+            "timestamp": 1626048000
+          }
+        },
+        {
+          "id": "fx97457e674a",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-07-12T00:00:00+00:00",
+            "end_at": "2021-07-19T00:00:00+00:00",
+            "timestamp": 1626652800
+          }
+        },
+        {
+          "id": "fx63fdd3399e",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-07-19T00:00:00+00:00",
+            "end_at": "2021-07-26T00:00:00+00:00",
+            "timestamp": 1627257600
+          }
+        },
+        {
+          "id": "fx5728f2ae0f",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-07-26T00:00:00+00:00",
+            "end_at": "2021-08-02T00:00:00+00:00",
+            "timestamp": 1627862400
+          }
+        },
+        {
+          "id": "fxc16528baca",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-08-02T00:00:00+00:00",
+            "end_at": "2021-08-09T00:00:00+00:00",
+            "timestamp": 1628467200
+          }
+        },
+        {
+          "id": "fx78d294af4c",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-08-09T00:00:00+00:00",
+            "end_at": "2021-08-16T00:00:00+00:00",
+            "timestamp": 1629072000
+          }
+        },
+        {
+          "id": "fxa7221c6827",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-08-16T00:00:00+00:00",
+            "end_at": "2021-08-23T00:00:00+00:00",
+            "timestamp": 1629676800
+          }
+        },
+        {
+          "id": "fx2782695df7",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-08-23T00:00:00+00:00",
+            "end_at": "2021-08-30T00:00:00+00:00",
+            "timestamp": 1630281600
+          }
+        },
+        {
+          "id": "fx68877326ca",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-08-30T00:00:00+00:00",
+            "end_at": "2021-09-06T00:00:00+00:00",
+            "timestamp": 1630886400
+          }
+        },
+        {
+          "id": "fxfe1065974d",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-09-06T00:00:00+00:00",
+            "end_at": "2021-09-13T00:00:00+00:00",
+            "timestamp": 1631491200
+          }
+        },
+        {
+          "id": "fxf8989d0a49",
+          "type": "trends_intervals",
+          "attributes": {
+            "start_at": "2021-09-13T00:00:00+00:00",
+            "end_at": "2021-09-20T00:00:00+00:00",
+            "timestamp": 1632096000
+          }
+        }
+      ],
+      "meta": {}
+    }
+  }
+}

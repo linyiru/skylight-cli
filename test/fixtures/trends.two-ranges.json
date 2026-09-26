@@ -10,12 +10,12 @@
     "body": {
       "ranges": [
         {
-          "timestamp": 1790370000,
+          "timestamp": 1790373600,
           "step": 60,
           "count": 2
         },
         {
-          "timestamp": 1790373600,
+          "timestamp": 1790377200,
           "step": 600,
           "count": 2
         }
@@ -28,69 +28,69 @@
     "body": {
       "ranges": [
         {
-          "timestamp": 1790370000,
+          "timestamp": 1790373600,
           "duration": 120,
           "step": 60,
           "counts": [
-            210,
-            289
+            248,
+            261
+          ],
+          "latenciesP50": [
+            8,
+            7
+          ],
+          "latenciesP90": [
+            25,
+            26
+          ],
+          "latenciesP95": [
+            27,
+            28
+          ],
+          "latenciesP98": [
+            32,
+            30
+          ],
+          "latenciesP99": [
+            47,
+            32
+          ],
+          "latenciesMax": [
+            204,
+            522
+          ]
+        },
+        {
+          "timestamp": 1790377200,
+          "duration": 1200,
+          "step": 600,
+          "counts": [
+            3549,
+            3452
           ],
           "latenciesP50": [
             7,
             7
           ],
           "latenciesP90": [
-            20,
-            25
+            19,
+            19
           ],
           "latenciesP95": [
             24,
-            32
+            22
           ],
           "latenciesP98": [
-            35,
-            38
+            32,
+            27
           ],
           "latenciesP99": [
-            46,
-            42
+            43,
+            34
           ],
           "latenciesMax": [
-            199,
-            667
-          ]
-        },
-        {
-          "timestamp": 1790373600,
-          "duration": 1200,
-          "step": 600,
-          "counts": [
-            2597,
-            2921
-          ],
-          "latenciesP50": [
-            7,
-            6
-          ],
-          "latenciesP90": [
-            21,
-            17
-          ],
-          "latenciesP95": [
-            26,
-            21
-          ],
-          "latenciesP98": [
-            31,
-            25
-          ],
-          "latenciesP99": [
-            35,
-            31
-          ],
-          "latenciesMax": [
-            1028,
-            1220
+            1347,
+            1219
           ]
         }
       ]

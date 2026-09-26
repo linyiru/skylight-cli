@@ -29,7 +29,7 @@
               "environment": "production",
               "slug": "str-8da96b91",
               "client_api_token": {
-                "expires": 1790382187,
+                "expires": 1790385175,
                 "token": "test-client-token"
               }
             }

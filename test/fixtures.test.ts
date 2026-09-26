@@ -11,6 +11,7 @@ import { SkylightClient } from '../src/skylight-client.ts';
 import { SkylightError } from '../src/errors.ts';
 import { main } from '../src/cli.ts';
 import { SOURCE_LOCATION_BATCH, TREND_MAX_SECONDS_PER_REQUEST } from '../src/spec.ts';
+import { WEEK_SECONDS, weekStart } from '../src/weekly.ts';
 import type { EndpointHighlight, EndpointSummary, TrendSeries, WireAppsResponse } from '../src/types.ts';
 import { FIXTURE_TOKENS, fixture, fixtureResponse, replay } from './support/msw.ts';
 
@@ -170,11 +171,27 @@ describe('source locations', () => {
     server.use(replay('auth.ok'), replay('apps.ok'),
       http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
         endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
-      replay('summary.n-plus-one'), replay('source-locations.ok'), replay('deploy.ok'));
+      replay('summary.n-plus-one'), replay('source-locations.ok'),
+      // A trace can span several deploys; serve the recorded one for each.
+      http.get('https://www.skylight.io/deploys/:id', () => fixtureResponse(fixture('deploy.ok'))));
     const { code, stdout } = await cli(['trace', summary.endpoint.name, '--full']);
     assert.equal(code, 0);
-    assert.match(stdout, /^Source +deploy [0-9a-f]{7}; \d+ of \d+ locations resolved$/m);
+    assert.match(stdout, /^Source +deploy [0-9a-f]{7}(, [0-9a-f]{7})*; \d+ of \d+ locations resolved$/m);
     assert.match(stdout, /  app\/[\w/]+\.rb:\d+( \(\+\d+\))?$/m);
+  });
+
+  test('a deploy that fails to load only drops its git sha', async () => {
+    const summary = fixture('summary.n-plus-one').response.body as EndpointSummary;
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: { name: string }[] };
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
+        endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
+      replay('summary.n-plus-one'), replay('source-locations.ok'),
+      http.get('https://www.skylight.io/deploys/:id', () => fixtureResponse(fixture('deploy.unknown'))));
+    const { code, stdout } = await cli(['trace', summary.endpoint.name, '--full']);
+    assert.equal(code, 0);
+    assert.doesNotMatch(stdout, /^Source +unavailable/m);
+    assert.match(stdout, /  app\/[\w/]+\.rb:\d+/);
   });
 
   test('trace still renders when source lookup fails', async () => {
@@ -183,7 +200,7 @@ describe('source locations', () => {
     server.use(replay('auth.ok'), replay('apps.ok'),
       http.post(`${dataBase}/endpoint_highlights`, () => Response.json({ ...highlights,
         endpoints: [{ ...highlights.endpoints[0], name: summary.endpoint.name }] })),
-      replay('summary.n-plus-one'), replay('deploy.ok'),
+      replay('summary.n-plus-one'), http.get('https://www.skylight.io/deploys/:id', () => fixtureResponse(fixture('deploy.ok'))),
       http.get('https://www.skylight.io/source_locations', () => fixtureResponse(fixture('source-locations.client-token'))));
     const { code, stdout } = await cli(['trace', summary.endpoint.name]);
     assert.equal(code, 0);
@@ -315,6 +332,37 @@ describe('CLI on recorded responses', () => {
     assert.match(stdout, new RegExp(`^Deploy +${target.git_sha.slice(0, 7)} at `, 'm'));
     assert.match(stdout, /^Compared +\d+ endpoints with at least 20 requests in both; 0 appeared, 0 disappeared$/m);
     assert.match(stdout, /^\+\d+ +[\d.]+→[\d.]+ +\d+→\d+ \(\+\d+%\)/m);
+  });
+
+  test('report builds six weeks from daily highlights and hourly trends', async () => {
+    const highlights = fixture('endpoint-highlights.ok').response.body as { endpoints: EndpointHighlight[] };
+    const [creeping] = highlights.endpoints;
+    const thisWeek = weekStart(Date.now() / 1000);
+    // p95 rises 20% per (Monday-based) week, for the first recorded endpoint only.
+    const p95 = (timestamp: number) => Math.round(100 * 1.2 ** (6 - (thisWeek - weekStart(timestamp)) / WEEK_SECONDS));
+    let endpointRequests = 0;
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, async ({ request }) => {
+        const { timestamp, duration } = await request.json() as { timestamp: number; duration: number };
+        endpointRequests++;
+        return Response.json({ timestamp, duration, endpoints: highlights.endpoints.map(e => ({ ...e, count: 500,
+          latencyP95: e.name === creeping!.name ? p95(timestamp) : e.latencyP95 })) });
+      }),
+      http.post(`${dataBase}/application_highlights`, async ({ request }) => {
+        const { ranges: [range] } = await request.json() as { ranges: { timestamp: number; step: number; count: number }[] };
+        const fill = (v: number) => Array.from({ length: range!.count }, () => v);
+        return Response.json({ ranges: [{ timestamp: range!.timestamp, duration: range!.step * range!.count, step: range!.step,
+          counts: fill(100), latenciesP50: fill(10), latenciesP90: fill(30), latenciesP95: fill(40), latenciesP98: fill(60),
+          latenciesP99: fill(80), latenciesMax: fill(500) }] });
+      }));
+    const { code, stdout } = await cli(['report']);
+    assert.equal(code, 0, stdout);
+    assert.equal(endpointRequests, 6 * 7);
+    assert.match(stdout, /^Week +\d{4}-\d\d-\d\d to \d{4}-\d\d-\d\d \(UTC, Monday to Sunday\)$/m);
+    assert.match(stdout, /^Problem performance \(p95\): 40 ms, no change from last week$/m);
+    const boils = stdout.slice(stdout.lastIndexOf('Frog boils'));
+    assert.ok(boils.includes(creeping!.name));
+    assert.match(boils, /100 → 120 → 144 → 173 → 207 → 249/);
   });
 
   test('an upstream 401 is exit code 1 with a token hint', async () => {

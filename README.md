@@ -33,6 +33,8 @@ skylight-cli trends --since 45d --step 3600      # fetched as 7 parallel request
 skylight-cli deploys -n 5                        # most recent first
 skylight-cli compare                             # what the latest deploy slowed down (2h before vs after)
 skylight-cli compare --deploy 07b0150 --since 1h
+skylight-cli report                              # last week vs the one before, like Skylight's Trends email
+skylight-cli report --week 2026-09-07 --weeks 4
 skylight-cli endpoints --json | jq '.endpoints[0]'
 ```
 
@@ -73,6 +75,18 @@ window before the deploy started with an equal window starting 5 minutes after, 
   little ranks above a rare one that swung a lot.
 - It notes when the next deploy falls inside the after window.
 - Adjacent windows can differ in traffic by time of day; read small changes with that in mind.
+
+`report` rebuilds Skylight's weekly Trends report, whose own API needs a web login. It covers:
+- typical (p50) and problem (p95) performance against last week;
+- the biggest slowdowns and most improved endpoints;
+- frog boils: endpoints that crept slower week after week, over up to 6 weeks.
+
+Weeks run Monday to Monday UTC, as in Skylight. Each week takes 8 requests (seven days of endpoint highlights, one
+of hourly app trends). Weekly values are request-weighted means of daily percentiles, so they approximate the true
+weekly percentile. The thresholds are ours:
+- an endpoint needs 100 requests in each week;
+- slower or faster means at least 10%;
+- a frog boil rose in all but one week and at least 20% overall.
 
 `endpoint <name>` and `trace <name>` accept a name without its `<sk-segment>` variant (the non-`error` variant is
 used), or a search term that matches exactly one endpoint; otherwise they list candidates.
@@ -126,6 +140,7 @@ or apps issues fresh ones.
 | POST | `{data_url}/apps/{component}/application_highlights` | client | trends; body `{ranges: [{timestamp, step, count}]}` |
 | GET | `www.skylight.io/source_locations?filter[id]={component}:{digest},…` | session | source location names (JSON:API) |
 | GET | `www.skylight.io/deploys/{id}` | session | one deploy, e.g. a trace annotation's deploy ref |
+| GET | `www.skylight.io/trends_intervals?filter[app_component_id]={component}` | session | weekly Trends periods |
 
 - Trends: `step` must be 60, 600, or 3600, and `step × count` summed over all ranges must be at most 7 days.
   Longer windows take several requests.
@@ -146,6 +161,10 @@ or apps issues fresh ones.
 - Latencies are in milliseconds, confirmed against the UI (typical response = p50, problem response = p95).
 - Q-digest nodes are `[lower, level, count]`, counting samples in `[lower, lower + 2^level)`.
 - Upstream returns full lists; `limit` is applied client-side.
+- Retention: data goes back to Monday 00:00 UTC six weeks before the current week (about 7 weeks). Older windows
+  return 200 with no endpoints, not an error. Verified 2026-09-25.
+- Skylight's own Trends report (`/trends_reports/{component};{timestamp}`) answers 401 to an MCP session. It needs a
+  web login, so `report` rebuilds it from the APIs above.
 
 Error responses, as recorded in [`test/fixtures`](test/fixtures):
 
@@ -158,7 +177,8 @@ Error responses, as recorded in [`test/fixtures`](test/fixtures):
 | `/deploys` with `Accept: application/json` | 406 | empty; the client sends `*/*` |
 | Malformed body, bad trends `step`, missing fields | 422 | `text/plain` serde message, e.g. `ranges[0].step: InvalidRangeStep` |
 | Endpoint window over 24h, trends over 7 days | 422 | empty |
-| `/source_locations` without `filter[id]` | 400 | empty |
+| `/source_locations` or `/trends_intervals` without a filter | 400 | empty |
+| `/trends_reports/…` with an MCP session token | 401 | empty |
 | Summary name not percent-encoded | 404 | empty |
 
 ## Development

@@ -1,0 +1,24 @@
+{
+  "scenario": "endpoint-highlights.beyond-retention",
+  "description": "A day older than Skylight keeps: 200 with no endpoints",
+  "request": {
+    "method": "POST",
+    "url": "https://data-v3.skylight.io/apps/fx4411e8845d/endpoint_highlights",
+    "auth": "client",
+    "bearer": false,
+    "accept": "*/*",
+    "body": {
+      "timestamp": 1784764800,
+      "duration": 86400
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "timestamp": 1784764800,
+      "duration": 86400,
+      "endpoints": []
+    }
+  }
+}

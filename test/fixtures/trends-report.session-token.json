@@ -1,0 +1,17 @@
+{
+  "scenario": "trends-report.session-token",
+  "description": "Skylight's own weekly report needs a web login, not an MCP session",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/trends_reports/fx4411e8845d%3B1789344000",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  }
+}

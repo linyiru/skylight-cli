@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `report` command: a weekly report like Skylight's Trends email. It shows typical and problem performance vs last
+  week, the biggest slowdowns, the most improved endpoints, and frog boils over up to 6 weeks. It is rebuilt from
+  daily endpoint highlights and hourly app trends. `weeklyReport()`, `getWeek()`, `weekStart()`.
+- `getEndpointHighlights()`: every endpoint in a window, unranked and without the 500 limit.
+- Fixtures and live checks for Trends intervals, the Trends report's 401 for MCP sessions, and data retention.
+
+### Fixed
+
+- `trace`: a deploy that fails to load (e.g. deleted) no longer hides every source location; only its git sha is
+  missing. Traces spanning several deploys list each sha once.
+
 ## [0.5.0] - 2026-09-25
 
 ### Added

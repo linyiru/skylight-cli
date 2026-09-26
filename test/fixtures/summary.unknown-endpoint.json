@@ -8,7 +8,7 @@
     "bearer": false,
     "accept": "*/*",
     "body": {
-      "timestamp": 1790356980,
+      "timestamp": 1790359920,
       "duration": 21600
     }
   },
@@ -21,11 +21,11 @@
         "duration": 21600,
         "nodes": [],
         "targets": [],
-        "timestamp": 1790356980
+        "timestamp": 1790359920
       },
       "endpoint": {
         "name": "FixtureProbeController#missing",
-        "timestamp": 1790356980,
+        "timestamp": 1790359920,
         "duration": 21600,
         "count": 0,
         "latencies": {
@@ -38,7 +38,7 @@
       "inspections": {
         "duration": 21600,
         "results": [],
-        "timestamp": 1790356980
+        "timestamp": 1790359920
       }
     }
   }

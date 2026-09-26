@@ -57,6 +57,8 @@ export interface Recording {
 const INVALID_TOKEN = 'skylight-cli-fixture-invalid-token';
 const hour = 3_600;
 const hourAligned = () => Math.floor(Date.now() / 1000 / hour) * hour;
+/** Monday 00:00 UTC of the current week. */
+const lastMonday = () => { const day = Math.floor(Date.now() / 86_400_000); return (day - ((day + 3) % 7)) * 86_400; };
 
 export const SCENARIOS: Scenario[] = [
   { name: 'auth.ok', description: 'MCP token exchanged for a session token and data_url',
@@ -93,6 +95,18 @@ export const SCENARIOS: Scenario[] = [
   { name: 'endpoint-highlights.over-24h', description: 'Duration above the documented 24h maximum',
     request: ctx => ({ method: 'POST', url: `${ctx.dataUrl}/apps/${ctx.componentGuid}/endpoint_highlights`, auth: 'client',
       body: { timestamp: ctx.since6h - 86_400, duration: 108_000 } }) },
+
+  { name: 'trends-intervals.ok', description: 'Weekly Trends periods (Monday to Monday UTC) for a component',
+    request: ctx => ({ method: 'GET', auth: 'session',
+      url: `${WEB_URL}/trends_intervals?${new URLSearchParams({ 'filter[app_component_id]': ctx.componentGuid })}` }) },
+  { name: 'trends-intervals.missing-filter', description: 'No filter',
+    request: () => ({ method: 'GET', auth: 'session', url: `${WEB_URL}/trends_intervals` }) },
+  { name: 'trends-report.session-token', description: "Skylight's own weekly report needs a web login, not an MCP session",
+    request: ctx => ({ method: 'GET', auth: 'session',
+      url: `${WEB_URL}/trends_reports/${encodeURIComponent(`${ctx.componentGuid};${lastMonday() - 7 * 86_400}`)}` }) },
+  { name: 'endpoint-highlights.beyond-retention', description: 'A day older than Skylight keeps: 200 with no endpoints',
+    request: ctx => ({ method: 'POST', url: `${ctx.dataUrl}/apps/${ctx.componentGuid}/endpoint_highlights`, auth: 'client',
+      body: { timestamp: lastMonday() - 60 * 86_400, duration: 86_400 } }) },
 
   { name: 'deploys.ok', description: 'Deploys for the last 45 days',
     request: ctx => ({ method: 'GET', auth: 'session',

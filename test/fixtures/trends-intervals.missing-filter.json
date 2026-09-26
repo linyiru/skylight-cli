@@ -1,0 +1,17 @@
+{
+  "scenario": "trends-intervals.missing-filter",
+  "description": "No filter",
+  "request": {
+    "method": "GET",
+    "url": "https://www.skylight.io/trends_intervals",
+    "auth": "session",
+    "bearer": false,
+    "accept": "*/*",
+    "body": null
+  },
+  "response": {
+    "status": 400,
+    "contentType": "text/html; charset=utf-8",
+    "body": null
+  }
+}

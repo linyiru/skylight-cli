@@ -12,6 +12,7 @@ import {
 } from './trace.ts';
 import { digestHistogram, digestQuantile } from './digest.ts';
 import { compareEndpoints, type EndpointChange } from './compare.ts';
+import { WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
 import type { RankedEndpoint } from './rank.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
 
@@ -37,6 +38,8 @@ Commands:
   trends               App-wide request count and latency over time
   deploys              List deploys for a component
   compare              Endpoints that got slower (or faster) across a deploy
+  report               Weekly trends like Skylight's: vs last week, biggest slowdowns,
+                       most improved, and frog boils (slow creep) over 6 weeks
 
 Options:
   -c, --component <c>  Component guid, "environment/name", or unique name
@@ -60,7 +63,10 @@ Options:
       --deploy <ref>   compare: git sha or deploy id prefix (default: the latest deploy);
                        --since sets each side's window (default 2h, max 24h); the after
                        window starts 5 min into the deploy, past the rollout
-      --min-requests <n>  compare: requests needed in both windows (default 20)
+      --min-requests <n>  compare: requests needed in both windows (default 20);
+                       report: in each week (default 100)
+      --week <date>    report: any date in the week (YYYY-MM-DD, UTC; default: last full week)
+      --weeks <n>      report: weeks for frog boils, 3-6 (default 6; Skylight keeps about 7)
       --json           Print JSON instead of a table
   -h, --help           Show this help
   -v, --version        Show version
@@ -82,6 +88,8 @@ const OPTIONS = {
   latency: { type: 'string' },
   'no-sources': { type: 'boolean' },
   deploy: { type: 'string' },
+  week: { type: 'string' },
+  weeks: { type: 'string' },
   'min-requests': { type: 'string' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
@@ -148,6 +156,8 @@ async function resolveComponent(client: SkylightClient, selector: string | undef
   throw new UsageError(found.length ? `Component "${selector}" is ambiguous; use "environment/name" or a guid`
     : `Component "${selector}" not found; run \`skylight-cli components\``);
 }
+
+const indent = (text: string) => text.split('\n').map(line => (line ? `    ${line}` : line)).join('\n');
 
 const time = (seconds: number) => new Date(seconds * 1000).toISOString().replace('.000Z', 'Z');
 const minute = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ');
@@ -322,10 +332,12 @@ const COMMANDS: Record<string, Command> = {
       // Source names are a nicety: a failed lookup must not lose the trace.
       try {
         const { digests, deployRefs } = traceSourceRefs(shown);
-        const [names, deploys] = await Promise.all([client.getSourceLocations({ componentId, digests }),
-          Promise.all(deployRefs.map(id => client.getDeploy({ id }).then(d => [id, d.attributes.git_sha] as const)))]);
+        // A deploy that fails to load (e.g. deleted) only loses its git sha, not the file names.
+        const [names, settled] = await Promise.all([client.getSourceLocations({ componentId, digests }),
+          Promise.allSettled(deployRefs.map(id => client.getDeploy({ id }).then(d => [id, d.attributes.git_sha] as const)))]);
+        const deploys = settled.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
         result = locateTraceTree(shown, names, new Map(deploys));
-        const shas = deploys.map(([, sha]) => sha.slice(0, 7));
+        const shas = [...new Set(deploys.map(([, sha]) => sha.slice(0, 7)))];
         sources = shas.length ? `Source    deploy ${shas.join(', ')}; ${names.size} of ${digests.length} locations resolved\n` : '';
       } catch (error) {
         const reason = error instanceof SkylightError ? (error.status ? `HTTP ${error.status}` : error.code) : 'lookup failed';
@@ -406,6 +418,50 @@ const COMMANDS: Record<string, Command> = {
       + (result.appeared.length ? `\nAppeared  ${result.appeared.slice(0, 5).map(e => e.name).join(', ')}${result.appeared.length > 5 ? ', …' : ''}\n` : '');
     return { json: { deploy, before: { timestamp: before.timestamp, duration: before.duration },
       after: { timestamp: after.timestamp, duration: after.duration }, minRequests, ...result }, text };
+  },
+
+  async report(client, options, componentId) {
+    const date = options.week === undefined ? undefined : Date.parse(`${options.week}T00:00:00Z`);
+    if (date !== undefined && !Number.isFinite(date)) throw new UsageError(`Invalid --week: ${options.week} (expected YYYY-MM-DD)`);
+    const current = weekStart(Math.floor(Date.now() / 1000));
+    const target = date === undefined ? current - WEEK_SECONDS : weekStart(date / 1000);
+    if (target >= current) throw new UsageError('That week is not over yet; pick an earlier --week');
+    const count = integer('weeks', options.weeks) ?? 6;
+    if (count < 3 || count > 6) throw new UsageError(`Invalid --weeks: ${options.weeks} (3-6)`);
+    // Weeks are fetched one at a time (8 requests each) to stay gentle on the API.
+    const weeks: WeekData[] = [];
+    for (let i = count - 1; i >= 0; i--) weeks.push(await client.getWeek({ componentId, start: target - i * WEEK_SECONDS }));
+    // Weeks older than Skylight's retention come back empty: keep the contiguous weeks with data.
+    const firstWithData = weeks.findIndex(w => w.endpoints.size > 0);
+    const usable = firstWithData < 0 ? weeks.slice(-1) : weeks.slice(firstWithData);
+    const report = weeklyReport(usable, { minRequests: integer('min-requests', options['min-requests']) ?? 100,
+      limit: integer('limit', options.limit) ?? 5 });
+    const day = (at: number) => new Date(at * 1000).toISOString().slice(0, 10);
+    const pct = (change: number) => `${change >= 0 ? '+' : ''}${Math.round(change * 100)}%`;
+    const millions = (n: number | null) => n === null ? '-' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n.toLocaleString('en-US');
+    const columns: Column<WeeklyChange>[] = [
+      ['MS/MIN', c => `${c.impactMsPerMinute >= 0 ? '+' : ''}${Math.round(c.impactMsPerMinute)}`],
+      ['RPM', c => c.rpm.toFixed(1)], ['BEFORE', c => Math.round(c.before)], ['AFTER', c => Math.round(c.after)],
+      ['CHANGE', c => pct(c.change)], ['ENDPOINT', c => c.name]];
+    const blocks = report.reports.map(r => {
+      const label = r.percentile === 50 ? 'Typical performance (p50)' : 'Problem performance (p95)';
+      const headline = r.after === null ? 'no data'
+        : `${Math.round(r.after)} ms, ${r.change === null ? 'no previous week to compare'
+          : !r.changed ? 'no change from last week' : `${Math.abs(Math.round(r.change * 100))}% ${r.change < 0 ? 'faster' : 'slower'} than last week`}`;
+      return `${label}: ${headline}\n`
+        + `\n  Biggest slowdowns\n${indent(table(r.slowdowns, columns))}`
+        + `\n  Most improved\n${indent(table(r.improved, columns))}`
+        + `\n  Frog boils (slow creep over ${report.boilWeeks || usable.length} weeks)\n`
+        + (report.boilWeeks ? indent(table(r.boils, [['CHANGE', c => pct(c.change)], ['RPM', c => c.rpm.toFixed(1)],
+          ['WEEKLY', c => c.series.map(v => Math.round(v)).join(' → ')], ['ENDPOINT', c => c.name]]))
+          : '    (needs at least 3 weeks of data)\n');
+    });
+    const text = `Week      ${day(report.start)} to ${day(report.end - 1)} (UTC, Monday to Sunday)\n`
+      + `Requests  ${millions(report.requests.after)}${report.requests.before && report.requests.after ? ` (${pct(report.requests.after / report.requests.before - 1)} vs last week)` : ''}\n`
+      + (usable.length < weeks.length ? `Note      only ${usable.length} of ${weeks.length} weeks have data (Skylight keeps about 7 weeks)\n` : '')
+      + `Method    rebuilt from daily highlights; weekly values are request-weighted means, thresholds are ours\n\n`
+      + blocks.join('\n');
+    return { json: report, text };
   },
 
   async deploys(client, options, componentId) {
