@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the deploys that started in it, back to Skylight's retention (about 7 weeks). `getEndpointHistory()`.
 - Sparse endpoints: when an endpoint had no requests in the window, `endpoint`, `trace`, and `history` search back a
   day at a time to Skylight's retention. They use the most recent day with requests and note it.
+- The CLI caches the session and client tokens between runs (one request per command instead of three). Files are
+  0600, in a 0700 `~/.cache/skylight-cli` (or `$XDG_CACHE_HOME`), named by a hash of the MCP token and never
+  containing it. `--no-cache` or `SKYLIGHT_CLI_NO_CACHE=1` turns it off, and `auth` always checks the token live.
+  In the library: the `cache` option, `CredentialCache`, `fileCredentialCache()`.
 
 ## [0.9.0] - 2026-09-25
 

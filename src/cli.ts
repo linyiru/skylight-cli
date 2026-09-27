@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { SkylightClient } from './skylight-client.ts';
+import { defaultCacheDirectory, fileCredentialCache } from './cache.ts';
 import { SkylightError, type SkylightErrorCode } from './errors.ts';
 import {
   DEPLOY_WINDOW, ENDPOINT_SORT_KEYS, ENDPOINT_WINDOW, HISTORY_CONCURRENCY, HISTORY_MAX_BUCKETS, LIMIT, TREND_STEPS, TREND_WINDOW, isEndpointSortKey, isTrendStep,
@@ -79,6 +80,7 @@ Options:
       --repo <o/n>     GitHub repo for links: trace file:line and compare commits link there
                        (clickable in terminals). For an app in a subdirectory of a monorepo,
                        add it: owner/name/apps/rails, or paste .../tree/<branch>/apps/rails
+      --no-cache       Do not reuse the session between runs (also SKYLIGHT_CLI_NO_CACHE=1)
       --json           Print JSON instead of a table
   -h, --help           Show this help
   -v, --version        Show version
@@ -86,6 +88,7 @@ Options:
 Environment:
   SKYLIGHT_MCP_TOKEN   Token from https://www.skylight.io/app/settings/mcp (required)
   SKYLIGHT_GITHUB_REPO Same as --repo
+  XDG_CACHE_HOME       Session cache location (default ~/.cache/skylight-cli; files are 0600)
 `;
 
 const OPTIONS = {
@@ -100,6 +103,7 @@ const OPTIONS = {
   'min-ms': { type: 'string' },
   latency: { type: 'string' },
   'no-sources': { type: 'boolean' },
+  'no-cache': { type: 'boolean' },
   deploy: { type: 'string' },
   week: { type: 'string' },
   repo: { type: 'string' },
@@ -715,7 +719,12 @@ export async function main(argv: string[], { env = process.env, stdout = process
     }
     let client: SkylightClient;
     try {
-      client = new SkylightClient({ token: env.SKYLIGHT_MCP_TOKEN, ...(fetch ? { fetch } : {}) });
+      // The session and client tokens are cached between runs (0600 files, keyed by a hash of the MCP token).
+      // `auth` always checks the token itself, so it skips the cache.
+      const directory = defaultCacheDirectory(env);
+      const cached = directory && command !== 'auth' && !options['no-cache'] && !env.SKYLIGHT_CLI_NO_CACHE;
+      client = new SkylightClient({ token: env.SKYLIGHT_MCP_TOKEN, ...(fetch ? { fetch } : {}),
+        ...(cached ? { cache: fileCredentialCache(directory) } : {}) });
     } catch {
       throw new UsageError('SKYLIGHT_MCP_TOKEN is not set; create one at https://www.skylight.io/app/settings/mcp');
     }

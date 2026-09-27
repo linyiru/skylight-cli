@@ -1,6 +1,6 @@
 export { SkylightClient } from './skylight-client.ts';
 export type {
-  EndpointDetailOptions, LatencyTrendsOptions, ListEndpointsOptions, ListOptions, SkylightClientOptions, WindowOptions,
+  CachedCredentials, CredentialCache, EndpointDetailOptions, LatencyTrendsOptions, ListEndpointsOptions, ListOptions, SkylightClientOptions, WindowOptions,
 } from './skylight-client.ts';
 export { SkylightError } from './errors.ts';
 export type { SkylightErrorCode } from './errors.ts';
@@ -25,3 +25,4 @@ export { githubCommitUrl, githubFileUrl, parseGithubLocation, parseGithubRepo, t
 export type { GithubLocation } from './github.ts';
 export { diffTraceTrees } from './trace-diff.ts';
 export type { TraceDiff, TraceEventChange } from './trace-diff.ts';
+export { defaultCacheDirectory, fileCredentialCache } from './cache.ts';

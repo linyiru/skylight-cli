@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { SkylightError } from './errors.ts';
 import { ERROR_SEGMENT, rankEndpoints, splitEndpointName, type RankedEndpoint } from './rank.ts';
 import { DAY_SECONDS, WEEK_SECONDS, aggregateAppSeries, aggregateEndpointDays, weekStart, type WeekData } from './weekly.ts';
@@ -26,11 +27,38 @@ const SORTS: Record<EndpointSortKey, (a: RankedEndpoint, b: RankedEndpoint) => n
 
 type AnyToken = McpToken | SessionToken | ClientApiToken;
 
+/** Session state worth keeping between runs; never includes the MCP token itself. */
+export interface CachedCredentials {
+  session: string;
+  dataUrl: string;
+  /** Unix seconds after which the session should be renewed. */
+  expiresAt: number;
+  /** Apps with their per-component client API tokens, valid until `appsExpireAt`. */
+  apps?: WireApp[];
+  appsExpireAt?: number;
+}
+
+/**
+ * Where a client keeps credentials between processes (see `fileCredentialCache`). Keys identify the MCP token
+ * without containing it. Failures are ignored: a cache can only save requests, never break one.
+ */
+export interface CredentialCache {
+  read(key: string): Promise<CachedCredentials | undefined> | CachedCredentials | undefined;
+  write(key: string, value: CachedCredentials): Promise<void> | void;
+  clear(key: string): Promise<void> | void;
+}
+
 export interface SkylightClientOptions {
   /** Defaults to `process.env.SKYLIGHT_MCP_TOKEN`. */
   token?: string | undefined;
   fetch?: typeof globalThis.fetch;
+  /** Reuse the session and client tokens across runs. Off unless given. */
+  cache?: CredentialCache | undefined;
 }
+
+/** Renew this long before a cached credential's expiry, so a request never starts on a token about to lapse. */
+const EXPIRY_MARGIN_SECONDS = 60;
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 export interface ListOptions {
   refresh?: boolean;
@@ -111,13 +139,54 @@ export class SkylightClient {
   #dataUrl: string | undefined;
   #apps: WireApp[] | undefined;
   #authPromise: Promise<void> | undefined;
+  #cache: CredentialCache | undefined;
+  #cacheKey: string;
+  #sessionExpiresAt = 0;
+  #appsExpireAt = 0;
 
-  constructor({ token = process.env.SKYLIGHT_MCP_TOKEN, fetch: fetchImpl = globalThis.fetch }: SkylightClientOptions = {}) {
+  constructor({ token = process.env.SKYLIGHT_MCP_TOKEN, fetch: fetchImpl = globalThis.fetch, cache }: SkylightClientOptions = {}) {
     if (typeof token !== 'string' || !token.trim() || /[\r\n]/.test(token)) {
       throw new SkylightError('MISSING_OR_INVALID_TOKEN');
     }
     this.#token = token as McpToken;
     this.#fetch = fetchImpl;
+    this.#cache = cache;
+    // Identifies the token for the cache without storing it.
+    this.#cacheKey = createHash('sha256').update(`skylight-cli:${token}`).digest('hex').slice(0, 32);
+  }
+
+  /** Loads a still-valid cached session (and apps). Returns whether it did. */
+  async #restore(): Promise<boolean> {
+    if (!this.#cache) return false;
+    try {
+      const cached = await this.#cache.read(this.#cacheKey);
+      const now = nowSeconds();
+      if (!cached || typeof cached.session !== 'string' || !(cached.expiresAt - EXPIRY_MARGIN_SECONDS > now)) return false;
+      // The same origin check as a fresh response: a tampered cache must not redirect tokens elsewhere.
+      this.#dataUrl = dataUrl(cached.dataUrl);
+      this.#session = cached.session as SessionToken;
+      this.#sessionExpiresAt = cached.expiresAt;
+      const appsValid = Array.isArray(cached.apps) && (cached.appsExpireAt ?? 0) - EXPIRY_MARGIN_SECONDS > now;
+      this.#apps = appsValid ? cached.apps : undefined;
+      this.#appsExpireAt = appsValid ? cached.appsExpireAt! : 0;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async #save(): Promise<void> {
+    if (!this.#cache || !this.#session || !this.#dataUrl) return;
+    try {
+      await this.#cache.write(this.#cacheKey, {
+        session: this.#session, dataUrl: this.#dataUrl, expiresAt: this.#sessionExpiresAt,
+        ...(this.#apps ? { apps: this.#apps, appsExpireAt: this.#appsExpireAt } : {}),
+      });
+    } catch { /* caching is best effort */ }
+  }
+
+  async #forget(): Promise<void> {
+    try { await this.#cache?.clear(this.#cacheKey); } catch { /* best effort */ }
   }
 
   async #request<T>(url: string, token: AnyToken, body?: unknown): Promise<T> {
@@ -141,9 +210,10 @@ export class SkylightClient {
     try { return await response.json() as T; } catch { throw new SkylightError('INVALID_JSON'); }
   }
 
-  async #authenticate(): Promise<void> {
+  async #authenticate({ fresh = false } = {}): Promise<void> {
     if (!this.#authPromise) {
       this.#authPromise = (async () => {
+        if (!fresh && await this.#restore()) return;
         const result = await this.#request<Partial<WireAuthResponse>>(`${WEB_URL}/mcp/authenticate`, this.#token);
         if (typeof result?.session?.token !== 'string' || !result.session.token) {
           throw new SkylightError('INVALID_AUTH_RESPONSE');
@@ -152,6 +222,10 @@ export class SkylightClient {
         this.#session = result.session.token;
         this.#dataUrl = origin;
         this.#apps = undefined;
+        // Renew at the refresh time Skylight suggests (75 min observed), well before the 3 h expiry.
+        const { refresh_ts: refreshAt, expiry_ts: expiresAt } = result.session;
+        this.#sessionExpiresAt = typeof refreshAt === 'number' ? refreshAt : typeof expiresAt === 'number' ? expiresAt : nowSeconds() + 3_600;
+        await this.#save();
       })().finally(() => { this.#authPromise = undefined; });
     }
     await this.#authPromise;
@@ -161,10 +235,11 @@ export class SkylightClient {
     if (!this.#session) await this.#authenticate();
     try { return await operation(); } catch (error) {
       if (!(error instanceof SkylightError) || error.status !== 401) throw error;
-      // Refresh the whole token chain once; never loop on invalid credentials.
+      // Refresh the whole token chain once, bypassing the cache; never loop on invalid credentials.
       this.#session = undefined;
       this.#apps = undefined;
-      await this.#authenticate();
+      await this.#forget();
+      await this.#authenticate({ fresh: true });
       return operation();
     }
   }
@@ -179,6 +254,11 @@ export class SkylightClient {
       }
       if (result.data_url) this.#dataUrl = dataUrl(result.data_url);
       this.#apps = result.apps;
+      // Client API tokens carry their own expiry; the apps list is only as fresh as the soonest one and the session.
+      const tokenExpiries = result.apps.flatMap(app => app.components.map(c => c.client_api_token?.expires))
+        .filter((t): t is number => typeof t === 'number');
+      this.#appsExpireAt = Math.min(this.#sessionExpiresAt, ...tokenExpiries);
+      await this.#save();
     }
     return this.#apps;
   }

@@ -63,6 +63,15 @@ skylight-cli endpoints --json | jq '.endpoints[0]'
 
 Exit codes: `0` success, `1` API or network failure, `2` usage error.
 
+The CLI caches the session between runs, so a command takes one request instead of three:
+- The cache holds the session token, data URL, and apps with their client tokens.
+- It lives in `$XDG_CACHE_HOME/skylight-cli` (default `~/.cache/skylight-cli`). The directory is 0700 and each file
+  0600, named by a hash of the MCP token; the token itself is never written.
+- Entries last until Skylight's suggested refresh time (about 75 minutes) or the soonest client-token expiry.
+- A 401 clears the entry and authenticates again. A cached data URL must pass the same skylight.io check as a fresh
+  one.
+- `auth` always checks the token itself. `--no-cache` or `SKYLIGHT_CLI_NO_CACHE=1` turns the cache off.
+
 `endpoints` scores every endpoint the way Skylight's endpoint list does. The scoring was read from Skylight's
 frontend and checked against the UI:
 - The grade comes from p50, from A+ (≤ 3 ms) to F (over 709 ms).
@@ -159,6 +168,9 @@ const located = locateTraceTree(tree, await client.getSourceLocations({ componen
 Types ship with the package. Upstream limits are exported as constants from `src/spec.ts`, for example
 `ENDPOINT_WINDOW`, `DEPLOY_WINDOW`, `LIMIT`, and `ENDPOINT_SORT_KEYS`. The client's validators and the CLI help read
 the same constants.
+
+Pass `cache: fileCredentialCache(dir)`, or any `CredentialCache`, to reuse sessions across processes. The library
+does not cache unless given one.
 
 The client exchanges the MCP token for a session token and per-component API tokens, then retries once after an HTTP 401
 with a fresh set. Requests time out after 30 s and never follow redirects. The data-service URL returned by Skylight must
