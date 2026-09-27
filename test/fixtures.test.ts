@@ -474,6 +474,41 @@ describe('CLI on recorded responses', () => {
     assert.equal((await cli(['history', 'graphql:Gate', '--step', '2d'])).code, 2);
   });
 
+  test('endpoint searches back day by day for a sparse endpoint, and uses the most recent day it had requests', async () => {
+    const summary = fixture('summary.n-plus-one').response.body as EndpointSummary;
+    const now = Math.floor(Date.now() / 1000);
+    const summaryWindows: number[] = [];
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, async ({ request }) => {
+        const { timestamp, duration } = await request.json() as { timestamp: number; duration: number };
+        // Requests only in the windows starting 3 and 5 days back.
+        const daysBack = Math.round((now - timestamp) / 86_400);
+        const endpoints = duration === 86_400 && (daysBack === 3 || daysBack === 5)
+          ? [{ name: summary.endpoint.name, count: 4, latencyP50: 10, latencyP95: 20, latencyP99: 30, inspections: {} }] : [];
+        return Response.json({ timestamp, duration, endpoints });
+      }),
+      http.post(`${dataBase}/endpoints/:name/summary`, async ({ request }) => {
+        summaryWindows.push((await request.json() as { timestamp: number }).timestamp);
+        return fixtureResponse(fixture('summary.n-plus-one'));
+      }));
+    const { code, stdout } = await cli(['endpoint', summary.endpoint.name, '--since', '10m']);
+    assert.equal(code, 0, stdout);
+    assert.match(stdout, /^Note +No requests in the window asked for; last seen in the day from /m);
+    assert.equal(summaryWindows.length, 1);
+    assert.equal(Math.round((now - summaryWindows[0]!) / 86_400), 3);
+  });
+
+  test('an endpoint with no requests anywhere in retention is a usage error', async () => {
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.post(`${dataBase}/endpoint_highlights`, async ({ request }) => {
+        const { timestamp, duration } = await request.json() as { timestamp: number; duration: number };
+        return Response.json({ timestamp, duration, endpoints: [] });
+      }));
+    const { code, stderr } = await cli(['endpoint', 'Nothing#here', '--since', '10m']);
+    assert.equal(code, 2);
+    assert.match(stderr, /had requests in the window or the \d+ days before it/);
+  });
+
   test('an upstream 401 is exit code 1 with a token hint', async () => {
     server.use(replay('auth.invalid-token'));
     const { code, stderr } = await cli(['auth']);

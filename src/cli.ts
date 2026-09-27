@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { SkylightClient } from './skylight-client.ts';
 import { SkylightError, type SkylightErrorCode } from './errors.ts';
 import {
-  DEPLOY_WINDOW, ENDPOINT_SORT_KEYS, ENDPOINT_WINDOW, HISTORY_MAX_BUCKETS, LIMIT, TREND_STEPS, TREND_WINDOW, isEndpointSortKey, isTrendStep,
+  DEPLOY_WINDOW, ENDPOINT_SORT_KEYS, ENDPOINT_WINDOW, HISTORY_CONCURRENCY, HISTORY_MAX_BUCKETS, LIMIT, TREND_STEPS, TREND_WINDOW, isEndpointSortKey, isTrendStep,
   type EndpointSortKey, type TrendStep, type WindowStart,
 } from './spec.ts';
 import {
@@ -14,8 +14,8 @@ import { digestHistogram, digestQuantile } from './digest.ts';
 import { compareEndpoints, type EndpointChange, type ErrorChange } from './compare.ts';
 import { diffTraceTrees, type TraceEventChange } from './trace-diff.ts';
 import { githubCommitUrl, parseGithubLocation, terminalLink, type GithubLocation } from './github.ts';
-import { WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
-import { rankEndpoints, type RankedEndpoint } from './rank.ts';
+import { DAY_SECONDS, WEEK_SECONDS, weekStart, weeklyReport, type WeekData, type WeeklyChange } from './weekly.ts';
+import { ERROR_SEGMENT, rankEndpoints, type RankedEndpoint } from './rank.ts';
 import type { Component, Deploy, EndpointHighlight, EndpointSummary, Inspection } from './types.ts';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -235,29 +235,65 @@ const ARGUMENTS: Record<string, string[]> = { endpoint: ['<name>'], trace: ['<na
 
 /** Resolves a search term to one canonical endpoint (with its <sk-segment> tag), then fetches its summary. */
 async function endpointSummary(client: SkylightClient, options: Options, componentId: string | undefined, query: string):
-  Promise<{ highlight: EndpointHighlight; detail: EndpointSummary }> {
+  Promise<{ highlight: EndpointHighlight; detail: EndpointSummary; note: string }> {
   const seconds = duration(options.since, ENDPOINT_WINDOW.default);
   // One pinned start, so the search and the summary cover the same window.
   const timestamp = pinnedStart(windowStart(options.at), seconds);
-  const highlight = await resolveEndpoint(client, componentId, query, timestamp, seconds);
-  return { highlight, detail: await client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp, duration: seconds }) };
+  const found = await resolveEndpoint(client, componentId, query, timestamp, seconds, { searchBack: true });
+  const detail = await client.getEndpointDetail({ componentId, endpoint: found.highlight.name, timestamp: found.timestamp, duration: found.duration });
+  return { highlight: found.highlight, detail, note: found.note };
 }
 
-/** The one endpoint a search term means in a window: exact, the non-error variant of a route, or a unique match. */
-async function resolveEndpoint(client: SkylightClient, componentId: string | undefined, query: string, timestamp: number, seconds: number):
-  Promise<EndpointHighlight> {
-  const matches = await client.listEndpoints({ componentId, timestamp, duration: seconds, limit: LIMIT.max, search: query, sortBy: 'count' });
-  // Prefer an exact name; then, ignoring the <sk-segment> variant, the one variant that is not `error`.
-  const base = (name: string) => name.replace(/<sk-segment>.*<\/sk-segment>$/, '');
-  const sameBase = matches.endpoints.filter(e => base(e.name) === query && !e.name.endsWith('<sk-segment>error</sk-segment>'));
-  const highlight = matches.endpoints.find(e => e.name === query)
-    ?? (sameBase.length === 1 ? sameBase[0] : undefined)
+/** The one endpoint a search term names among matches: exact, the non-error variant of a route, or a unique match. */
+function pickEndpoint(matches: { total: number; endpoints: RankedEndpoint[] }, query: string): RankedEndpoint | undefined {
+  const sameRoute = matches.endpoints.filter(e => e.baseName === query && e.segment !== ERROR_SEGMENT);
+  return matches.endpoints.find(e => e.name === query)
+    ?? (sameRoute.length === 1 ? sameRoute[0] : undefined)
     ?? (matches.total === 1 ? matches.endpoints[0] : undefined);
-  if (!highlight) {
-    throw new UsageError(matches.total === 0 ? `No endpoint matching "${query}" had requests in this window`
-      : `"${query}" matches ${matches.total} endpoints; use the full name:\n${matches.endpoints.slice(0, 10).map(e => `  ${e.name}`).join('\n')}`);
+}
+
+interface ResolvedEndpoint {
+  highlight: RankedEndpoint;
+  /** The window the endpoint was found in: the one asked for, or an earlier day when searching back. */
+  timestamp: number;
+  duration: number;
+  /** Explains a searched-back window; empty otherwise. */
+  note: string;
+}
+
+/**
+ * Resolves a search term in a window. With `searchBack`, an endpoint without requests there is looked for in
+ * earlier days, back to Skylight's retention, and the most recent day it had requests is used (like the official
+ * MCP's search_back for sparse endpoints).
+ */
+async function resolveEndpoint(client: SkylightClient, componentId: string | undefined, query: string, timestamp: number,
+  seconds: number, { searchBack = false } = {}): Promise<ResolvedEndpoint> {
+  const search = (at: number, length: number) =>
+    client.listEndpoints({ componentId, timestamp: at, duration: length, limit: LIMIT.max, search: query, sortBy: 'count' });
+  const ambiguous = (matches: { total: number; endpoints: RankedEndpoint[] }) =>
+    new UsageError(`"${query}" matches ${matches.total} endpoints; use the full name:\n${matches.endpoints.slice(0, 10).map(e => `  ${e.name}`).join('\n')}`);
+  const matches = await search(timestamp, seconds);
+  const highlight = pickEndpoint(matches, query);
+  if (highlight) return { highlight, timestamp: matches.timestamp, duration: matches.duration, note: '' };
+  if (matches.total > 0) throw ambiguous(matches);
+  if (searchBack) {
+    const retained = weekStart(Date.now() / 1000) - 6 * WEEK_SECONDS;
+    const days: number[] = [];
+    for (let at = timestamp - DAY_SECONDS; at >= retained; at -= DAY_SECONDS) days.push(at);
+    // A few days at a time, newest first; stop at the first batch with a match and use its newest day.
+    for (let i = 0; i < days.length; i += HISTORY_CONCURRENCY) {
+      const batch = await Promise.all(days.slice(i, i + HISTORY_CONCURRENCY).map(at => search(at, DAY_SECONDS)));
+      for (const day of batch) {
+        if (!day.total) continue;
+        const found = pickEndpoint(day, query);
+        if (!found) throw ambiguous(day);
+        return { highlight: found, timestamp: day.timestamp, duration: day.duration,
+          note: `No requests in the window asked for; last seen in the day from ${time(day.timestamp)}` };
+      }
+    }
+    throw new UsageError(`No endpoint matching "${query}" had requests in the window or the ${days.length} days before it`);
   }
-  return highlight;
+  throw new UsageError(`No endpoint matching "${query}" had requests in this window`);
 }
 
 /** `a-b` in ms, or a preset resolved against the endpoint's latency digest once it is fetched. */
@@ -340,7 +376,7 @@ const signedMs = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}
 async function traceDiff(client: SkylightClient, options: Options, componentId: string | undefined, query: string,
   { repo, links }: Context): Promise<Output> {
   const { deploy, started, settled, seconds, baseline, baselineStart } = await deployWindows(client, options, componentId);
-  const highlight = await resolveEndpoint(client, componentId, query, settled, seconds);
+  const { highlight } = await resolveEndpoint(client, componentId, query, settled, seconds);
   const [beforeDetail, afterDetail] = await Promise.all([
     client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp: baselineStart, duration: seconds }),
     client.getEndpointDetail({ componentId, endpoint: highlight.name, timestamp: settled, duration: seconds }),
@@ -422,10 +458,10 @@ const COMMANDS: Record<string, Command> = {
   },
 
   async endpoint(client, options, componentId, [query]) {
-    const { highlight, detail } = await endpointSummary(client, options, componentId, query!);
+    const { highlight, detail, note } = await endpointSummary(client, options, componentId, query!);
     const { endpoint, inspections } = detail;
     const tree = buildTraceTree(detail.trace);
-    const text = `Endpoint     ${endpoint.name}\n`
+    const text = (note ? `Note         ${note}\n` : '') + `Endpoint     ${endpoint.name}\n`
       + `Window       ${time(endpoint.timestamp)} + ${endpoint.duration}s\n`
       + `Requests     ${endpoint.count}\n`
       + `Latency      p50 ${highlight.latencyP50}  p95 ${highlight.latencyP95}  p99 ${highlight.latencyP99}  (min ${endpoint.latencies.min}, max ${endpoint.latencies.max})\n`
@@ -442,7 +478,7 @@ const COMMANDS: Record<string, Command> = {
     const range = latencyRange(options.latency);
     const minMs = options['min-ms'] === undefined ? 0 : Number(options['min-ms']);
     if (!Number.isFinite(minMs) || minMs < 0) throw new UsageError(`Invalid --min-ms: ${options['min-ms']}`);
-    const { detail } = await endpointSummary(client, options, componentId, query!);
+    const { detail, note } = await endpointSummary(client, options, componentId, query!);
     const bounds = resolveLatency(range, detail);
     const tree = buildTraceTree(detail.trace, bounds ? { targets: t => t.start + t.length > bounds[0] && t.start < bounds[1] } : {});
     if (!tree) {
@@ -469,7 +505,7 @@ const COMMANDS: Record<string, Command> = {
         sources = `Source    unavailable (${reason}); --no-sources skips the lookup\n`;
       }
     }
-    const text = `Endpoint  ${detail.endpoint.name}\n`
+    const text = (note ? `Note      ${note}\n` : '') + `Endpoint  ${detail.endpoint.name}\n`
       + `Window    ${time(detail.endpoint.timestamp)} + ${detail.endpoint.duration}s; ${tree.samples} requests`
       + `${bounds ? ` at ${typeof range === 'string' ? `${range} (` : ''}${bounds[0]}-${bounds[1] === Number.MAX_SAFE_INTEGER ? '' : bounds[1]} ms${typeof range === 'string' ? ')' : ''}` : ''}\n`
       + `Time      ${breakdownText(tree)}\n`
@@ -494,7 +530,7 @@ const COMMANDS: Record<string, Command> = {
     const count = (end - start) / step;
     if (count > HISTORY_MAX_BUCKETS) throw new UsageError(`${count} buckets is too many (max ${HISTORY_MAX_BUCKETS}); use a larger --step`);
     const recent = Math.min(86_400, span);
-    const highlight = await resolveEndpoint(client, componentId, query!, now - recent, recent);
+    const { highlight } = await resolveEndpoint(client, componentId, query!, now - recent, recent, { searchBack: true });
     const [points, { data: deploys }] = await Promise.all([
       client.getEndpointHistory({ componentId, endpoint: highlight.name, timestamp: start, duration: count * step, step }),
       client.listDeploys({ componentId, timestamp: Math.max(start, retained), duration: Math.min(DEPLOY_WINDOW.max, end - start), limit: LIMIT.max }),

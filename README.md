@@ -118,6 +118,10 @@ rate, and the deploys that started in it. Each bucket takes one endpoint highlig
 and buckets align to whole hours or UTC days. Skylight has no per-endpoint time series, so this is the closest
 equivalent; the official MCP lists one as planned.
 
+If the endpoint had no requests in the window, `endpoint`, `trace`, and `history` search back a day at a time, to
+Skylight's retention. They use the most recent day it had requests and say so. This is like the official MCP's
+`search_back`, for sparse endpoints such as exports or admin pages.
+
 `endpoint <name>` and `trace <name>` accept a name without its `<sk-segment>` variant (the non-`error` variant is
 used), or a search term that matches exactly one endpoint; otherwise they list candidates.
 

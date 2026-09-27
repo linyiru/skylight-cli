@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `history <name>`: one endpoint over time. Each hour or day shows requests, p50/p95/p99, the route's error rate,
   and the deploys that started in it, back to Skylight's retention (about 7 weeks). `getEndpointHistory()`.
+- Sparse endpoints: when an endpoint had no requests in the window, `endpoint`, `trace`, and `history` search back a
+  day at a time to Skylight's retention. They use the most recent day with requests and note it.
 
 ## [0.9.0] - 2026-09-25
 
