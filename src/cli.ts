@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { SkylightClient } from './skylight-client.ts';
 import { SkylightError, type SkylightErrorCode } from './errors.ts';
 import {
-  DEPLOY_WINDOW, ENDPOINT_SORT_KEYS, ENDPOINT_WINDOW, LIMIT, TREND_STEPS, TREND_WINDOW, isEndpointSortKey, isTrendStep,
+  DEPLOY_WINDOW, ENDPOINT_SORT_KEYS, ENDPOINT_WINDOW, HISTORY_MAX_BUCKETS, LIMIT, TREND_STEPS, TREND_WINDOW, isEndpointSortKey, isTrendStep,
   type EndpointSortKey, type TrendStep, type WindowStart,
 } from './spec.ts';
 import {
@@ -35,6 +35,8 @@ Commands:
   endpoint <name>      Latency and inspections (e.g. N+1 queries) for one endpoint;
                        <name> may omit the <sk-segment> variant, or be a search term
                        that matches exactly one endpoint
+  history <name>       One endpoint over time: requests, p50/p95/p99, and error rate per hour
+                       or day, with deploys marked
   trace <name>         The endpoint's aggregated trace as a tree: when each event starts,
                        how long it takes, its self time and allocations, and how often it occurs;
                        with --deploy, which events changed across that deploy
@@ -50,13 +52,15 @@ Options:
       --since <d>      Window length: 90s, 30m, 6h, 45d, or seconds
                        endpoints/endpoint/trace: default ${hours(ENDPOINT_WINDOW.default)}, max ${hours(ENDPOINT_WINDOW.max)}
                        trends: default ${days(TREND_WINDOW.default)}, max ${days(TREND_WINDOW.max)}
+                       history: default 7d, back to Skylight's retention (about 7 weeks)
                        deploys: default ${days(DEPLOY_WINDOW.default)}, max ${days(DEPLOY_WINDOW.max)}
       --at <unix>      Window start in unix seconds (default: now minus --since)
   -n, --limit <n>      Maximum rows, ${LIMIT.min}-${LIMIT.max} (default ${LIMIT.default})
   -s, --search <q>     endpoints: filter by name; "users#index" matches UsersController#index
       --sort <key>     endpoints: ${ENDPOINT_SORT_KEYS.join(' | ')} (default: agony, like Skylight)
       --step <s>       trends: bucket size in seconds, ${TREND_STEPS.join(' | ')}
-                       (default: 60 up to 2h, 600 up to 24h, else 3600)
+                       (default: 60 up to 2h, 600 up to 24h, else 3600);
+                       history: bucket length such as 1h or 1d (default 1h up to 2d, else 1d)
       --full           trace: show every event (default folds pass-through middleware
                        and hides events in fewer than 1% of requests)
       --min-ms <n>     trace: hide events shorter than n ms on average
@@ -171,6 +175,7 @@ async function resolveComponent(client: SkylightClient, selector: string | undef
 const indent = (text: string) => text.split('\n').map(line => (line ? `    ${line}` : line)).join('\n');
 
 const time = (seconds: number) => new Date(seconds * 1000).toISOString().replace('.000Z', 'Z');
+const day = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 10);
 const minute = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ');
 const oneLine = (text: string | null | undefined, max: number) => {
   const flat = (text ?? '').replace(/\s+/g, ' ').trim();
@@ -226,7 +231,7 @@ async function deployWindows(client: SkylightClient, options: Options, component
 }
 
 /** Positional arguments each command takes after its name. */
-const ARGUMENTS: Record<string, string[]> = { endpoint: ['<name>'], trace: ['<name>'] };
+const ARGUMENTS: Record<string, string[]> = { endpoint: ['<name>'], trace: ['<name>'], history: ['<name>'] };
 
 /** Resolves a search term to one canonical endpoint (with its <sk-segment> tag), then fetches its summary. */
 async function endpointSummary(client: SkylightClient, options: Options, componentId: string | undefined, query: string):
@@ -474,6 +479,41 @@ const COMMANDS: Record<string, Command> = {
       + `\n  START      DUR     SELF     ALLOC   SEEN  EVENT (times in ms, averaged over requests that include the event)\n`
       + traceLines(result, links).join('\n') + '\n';
     return { json: result, text };
+  },
+
+  async history(client, options, componentId, [query]) {
+    const now = Math.floor(Date.now() / 1000);
+    const retained = weekStart(now) - 6 * WEEK_SECONDS;
+    const span = duration(options.since, 7 * 86_400);
+    const step = options.step === undefined ? (span <= 2 * 86_400 ? 3_600 : 86_400) : duration(options.step, 0);
+    if (step < 60 || step > 86_400 || step % 60) throw new UsageError(`Invalid --step: ${options.step} (1m to 1d, whole minutes)`);
+    // Buckets align to step boundaries (whole hours or UTC days); the last one is still in progress.
+    const end = Math.ceil(now / step) * step;
+    const buckets = Math.ceil(span / step);
+    const start = Math.max(end - buckets * step, Math.ceil(retained / step) * step);
+    const count = (end - start) / step;
+    if (count > HISTORY_MAX_BUCKETS) throw new UsageError(`${count} buckets is too many (max ${HISTORY_MAX_BUCKETS}); use a larger --step`);
+    const recent = Math.min(86_400, span);
+    const highlight = await resolveEndpoint(client, componentId, query!, now - recent, recent);
+    const [points, { data: deploys }] = await Promise.all([
+      client.getEndpointHistory({ componentId, endpoint: highlight.name, timestamp: start, duration: count * step, step }),
+      client.listDeploys({ componentId, timestamp: Math.max(start, retained), duration: Math.min(DEPLOY_WINDOW.max, end - start), limit: LIMIT.max }),
+    ]);
+    const deploysIn = (at: number) => deploys.filter(d => { const t = Date.parse(d.attributes.start_at) / 1000; return t >= at && t < at + step; });
+    const label = (at: number) => (step % 86_400 === 0 ? day(at) : minute(at));
+    const rows = points.map(p => ({ ...p, deploys: deploysIn(p.timestamp) }));
+    const text = `Endpoint  ${highlight.name}\n`
+      + `Window    ${time(start)} to ${time(end)}, ${step % 86_400 === 0 ? `${step / 86_400}d` : step % 3_600 === 0 ? `${step / 3_600}h` : `${step / 60}m`} buckets`
+      + `${start > end - buckets * step ? '; earlier data is past Skylight\'s retention' : ''}\n\n`
+      + table(rows, [
+        ['TIME (UTC)', r => `${label(r.timestamp)}${r.timestamp + step > now ? '*' : ''}`],
+        ['REQUESTS', r => r.endpoint?.count ?? 0],
+        ['RPM', r => (r.endpoint ? (r.endpoint.count * 60 / step).toFixed(r.endpoint.count * 60 / step < 10 ? 2 : 0) : '')],
+        ['P50', r => r.endpoint?.latencyP50 ?? ''], ['P95', r => r.endpoint?.latencyP95 ?? ''], ['P99', r => r.endpoint?.latencyP99 ?? ''],
+        ['ERR%', r => (r.errorRate ? percentOf(r.errorRate) : '')],
+        ['DEPLOYS', r => r.deploys.map(d => d.attributes.git_sha.slice(0, 7)).slice(0, 3).join(' ') + (r.deploys.length > 3 ? ` +${r.deploys.length - 3}` : '')]])
+      + (points.at(-1)!.timestamp + step > now ? '* in progress\n' : '');
+    return { json: { endpoint: highlight.name, step, points: rows.map(r => ({ ...r, deploys: r.deploys.map(d => d.attributes.git_sha) })) }, text };
   },
 
   async trends(client, options, componentId) {

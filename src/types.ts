@@ -208,3 +208,14 @@ export interface WireSourceLocationsResponse {
   data: WireSourceLocation[];
   meta: Record<string, unknown>;
 }
+
+/** One bucket of an endpoint's history. */
+export interface EndpointHistoryPoint {
+  timestamp: number;
+  duration: number;
+  /** The endpoint's highlight in this bucket; null when it had no requests. */
+  endpoint: EndpointHighlight | null;
+  /** Requests across the route's variants, and the share of them that were errors (0-1). */
+  routeRequests: number;
+  errorRate: number;
+}

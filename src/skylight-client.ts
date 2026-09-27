@@ -1,12 +1,12 @@
 import { SkylightError } from './errors.ts';
-import { rankEndpoints, type RankedEndpoint } from './rank.ts';
+import { ERROR_SEGMENT, rankEndpoints, splitEndpointName, type RankedEndpoint } from './rank.ts';
 import { DAY_SECONDS, WEEK_SECONDS, aggregateAppSeries, aggregateEndpointDays, weekStart, type WeekData } from './weekly.ts';
 import {
-  DEPLOY_WINDOW, ENDPOINT_WINDOW, LIMIT, SOURCE_LOCATION_BATCH, TREND_WINDOW, assertLimit, defaultTrendStep, isEndpointSortKey, timeWindow,
+  DEPLOY_WINDOW, ENDPOINT_WINDOW, HISTORY_CONCURRENCY, HISTORY_MAX_BUCKETS, LIMIT, SOURCE_LOCATION_BATCH, TREND_WINDOW, assertLimit, defaultTrendStep, isEndpointSortKey, timeWindow,
   trendRanges, type EndpointSortKey, type TimeWindow, type TrendStep, type WindowStart,
 } from './spec.ts';
 import type {
-  App, ClientApiToken, Component, Deploy, DeployList, EndpointHighlight, EndpointList, EndpointSummary, McpToken,
+  App, ClientApiToken, Component, Deploy, DeployList, EndpointHistoryPoint, EndpointHighlight, EndpointList, EndpointSummary, McpToken,
   SessionToken, TrendSeries, WireApp, WireAppsResponse, WireAuthResponse, WireComponent, WireDeploysResponse,
   WireEndpointHighlightsResponse, WireSourceLocationsResponse, WireTrendsResponse,
 } from './types.ts';
@@ -349,5 +349,37 @@ export class SkylightClient {
     ]);
     return { start: monday, end: monday + WEEK_SECONDS, app: aggregateAppSeries(series),
       endpoints: aggregateEndpointDays(days.map(day => day.endpoints)) };
+  }
+
+  /**
+   * An endpoint over time: one endpoint_highlights request per bucket (`step` seconds, at most a day), fetched a few
+   * at a time. Each point also carries the route's error rate across its variants.
+   */
+  async getEndpointHistory({ componentId, endpoint, timestamp, duration, step }: { componentId?: string | undefined;
+    endpoint: string; timestamp: number; duration: number; step: number }): Promise<EndpointHistoryPoint[]> {
+    if (typeof endpoint !== 'string' || !endpoint) throw new SkylightError('INVALID_ENDPOINT');
+    if (!Number.isInteger(step) || step < ENDPOINT_WINDOW.min || step > ENDPOINT_WINDOW.max || step % 60) {
+      throw new SkylightError('INVALID_STEP');
+    }
+    const buckets = Math.ceil(duration / step);
+    if (!Number.isInteger(duration) || duration < step || buckets > HISTORY_MAX_BUCKETS) throw new SkylightError('INVALID_DURATION');
+    const start = Math.floor(timestamp / 60) * 60;
+    const { baseName } = splitEndpointName(endpoint);
+    const points: EndpointHistoryPoint[] = new Array(buckets);
+    let next = 0;
+    const worker = async () => {
+      while (next < buckets) {
+        const i = next++;
+        const result = await this.getEndpointHighlights({ componentId, timestamp: start + i * step, duration: step });
+        const route = result.endpoints.filter(e => splitEndpointName(e.name).baseName === baseName && e.count > 0);
+        const routeRequests = route.reduce((sum, e) => sum + e.count, 0);
+        const errors = route.filter(e => splitEndpointName(e.name).segment === ERROR_SEGMENT).reduce((sum, e) => sum + e.count, 0);
+        const own = result.endpoints.find(e => e.name === endpoint && e.count > 0) ?? null;
+        points[i] = { timestamp: result.timestamp, duration: result.duration, endpoint: own, routeRequests,
+          errorRate: routeRequests ? errors / routeRequests : 0 };
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(HISTORY_CONCURRENCY, buckets) }, worker));
+    return points;
   }
 }

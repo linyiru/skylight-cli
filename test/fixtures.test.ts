@@ -443,6 +443,37 @@ describe('CLI on recorded responses', () => {
     assert.match(stdout, /^Changed\n  \(none\)$/m);
   });
 
+  test('history: one request per aligned bucket, route error rate, deploys marked', async () => {
+    // One deploy yesterday at noon UTC, shaped like the recorded ones.
+    const recorded = fixture('deploys.ok').response.body as { data: { attributes: Record<string, string> }[]; meta: object };
+    const yesterday = (Math.floor(Date.now() / 86_400_000) - 1) * 86_400;
+    const deploy = { ...recorded.data[0]!, attributes: { ...recorded.data[0]!.attributes,
+      start_at: new Date((yesterday + 43_200) * 1000).toISOString(), git_sha: 'abcdef0123456789abcdef0123456789abcdef01' } };
+    const name = 'graphql:Gate<sk-segment>json</sk-segment>';
+    const windows: number[] = [];
+    server.use(replay('auth.ok'), replay('apps.ok'),
+      http.get('https://www.skylight.io/deploys', () => Response.json({ data: [deploy], meta: {} })),
+      http.post(`${dataBase}/endpoint_highlights`, async ({ request }) => {
+        const { timestamp, duration } = await request.json() as { timestamp: number; duration: number };
+        windows.push(timestamp);
+        const e = (n: string, count: number) => ({ name: n, count, latencyP50: 10, latencyP95: 20, latencyP99: 30, inspections: {} });
+        return Response.json({ timestamp, duration, endpoints: [e(name, 75), e('graphql:Gate<sk-segment>error</sk-segment>', 25), e('Other#x', 5)] });
+      }));
+    const { code, stdout } = await cli(['history', 'graphql:Gate', '--since', '3d', '--step', '1d']);
+    assert.equal(code, 0, stdout);
+    // The name lookup plus three day buckets, each aligned to UTC midnight.
+    const days = windows.filter(t => t % 86_400 === 0);
+    assert.equal(days.length, 3);
+    assert.match(stdout, /^Endpoint +graphql:Gate<sk-segment>json<\/sk-segment>$/m);
+    assert.equal(stdout.match(/^\d{4}-\d\d-\d\d\*? +75 +/gm)?.length, 3);
+    assert.match(stdout, / 25% /);
+    // The deploy sits in yesterday's bucket only.
+    const yesterdayRow = new Date(yesterday * 1000).toISOString().slice(0, 10);
+    assert.match(stdout, new RegExp(`^${yesterdayRow} .* abcdef0$`, 'm'));
+    assert.equal(stdout.match(/abcdef0/g)?.length, 1);
+    assert.equal((await cli(['history', 'graphql:Gate', '--step', '2d'])).code, 2);
+  });
+
   test('an upstream 401 is exit code 1 with a token hint', async () => {
     server.use(replay('auth.invalid-token'));
     const { code, stderr } = await cli(['auth']);

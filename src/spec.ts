@@ -101,3 +101,8 @@ export function trendRanges(timestamp: WindowStart, duration: number, step: Tren
 
 /** Source location ids per `filter[id]` request; 40 verified, kept conservative for URL length. */
 export const SOURCE_LOCATION_BATCH = 50;
+
+/** Endpoint history: buckets of 1 minute to 1 day (one request each), at most this many per history. */
+export const HISTORY_MAX_BUCKETS = 200;
+/** Concurrent bucket requests. */
+export const HISTORY_CONCURRENCY = 6;

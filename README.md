@@ -26,6 +26,8 @@ skylight-cli endpoints --sort errors --since 24h # routes producing the most err
 skylight-cli endpoints -s users#index --since 24h
 skylight-cli endpoints -c staging/web --at 1790000000 --since 1h
 skylight-cli endpoint users#show                 # latency, time breakdown, N+1 queries, distribution
+skylight-cli history users#show                  # the endpoint per day for a week, deploys marked
+skylight-cli history users#show --since 24h      # per hour; --step 1h|1d, back about 7 weeks
 skylight-cli trace graphql:CoursePage            # aggregated trace tree: start, duration, self time, allocations
 skylight-cli trace users#show --latency slowest  # only requests above p95; or fastest, or 500-5000
 skylight-cli trace users#show --repo owner/app   # file:line links to GitHub at the deployed commit
@@ -110,6 +112,11 @@ endpoint's trace event by event.
   gone, each with its `file:line`.
 - Events are matched by their path from the root. Same-named siblings (several `SELECT FROM users`) are paired in
   start-time order, which can mispair them if their order changed.
+
+`history <name>` follows one endpoint over time. Each bucket shows its requests, p50/p95/p99, the route's error
+rate, and the deploys that started in it. Each bucket takes one endpoint highlights request, fetched six at a time,
+and buckets align to whole hours or UTC days. Skylight has no per-endpoint time series, so this is the closest
+equivalent; the official MCP lists one as planned.
 
 `endpoint <name>` and `trace <name>` accept a name without its `<sk-segment>` variant (the non-`error` variant is
 used), or a search term that matches exactly one endpoint; otherwise they list candidates.

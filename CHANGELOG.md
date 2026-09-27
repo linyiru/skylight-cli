@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `history <name>`: one endpoint over time. Each hour or day shows requests, p50/p95/p99, the route's error rate,
+  and the deploys that started in it, back to Skylight's retention (about 7 weeks). `getEndpointHistory()`.
+
 ## [0.9.0] - 2026-09-25
 
 ### Added
